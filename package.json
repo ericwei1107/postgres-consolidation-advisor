@@ -1,0 +1,63 @@
+{
+  "name": "postgres-advisor",
+  "version": "0.1.0",
+  "description": "Inventory a repo's non-Postgres data stores and get quantified consolidate/keep verdicts with cited thresholds.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "postgres-advisor": "dist/cli.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "rules",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/cli.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericwei1107/postgres-consolidation-advisor.git"
+  },
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "redis",
+    "elasticsearch",
+    "mongodb",
+    "kafka",
+    "consolidation",
+    "static-analysis",
+    "cli"
+  ],
+  "dependencies": {
+    "commander": "^13.1.0",
+    "fast-glob": "^3.3.3",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
+  }
+}
