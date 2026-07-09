@@ -1,0 +1,59 @@
+[
+  {
+    "id": "redis:python-service",
+    "product": "redis",
+    "category": ["queue"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 10,
+        "excerpt": "image: redis:7"
+      },
+      {
+        "kind": "dependency",
+        "file": "requirements.txt",
+        "line": 5,
+        "excerpt": "celery==5.4.0"
+      },
+      {
+        "kind": "dependency",
+        "file": "requirements.txt",
+        "line": 6,
+        "excerpt": "redis==5.0.4"
+      }
+    ]
+  },
+  {
+    "id": "mongodb:python-service",
+    "product": "mongodb",
+    "category": ["document"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 15,
+        "excerpt": "image: mongo:7"
+      },
+      {
+        "kind": "dependency",
+        "file": "requirements.txt",
+        "line": 7,
+        "excerpt": "pymongo==4.7.2"
+      }
+    ]
+  },
+  {
+    "id": "pinecone:python-service",
+    "product": "pinecone",
+    "category": ["vector"],
+    "evidence": [
+      {
+        "kind": "dependency",
+        "file": "requirements.txt",
+        "line": 8,
+        "excerpt": "pinecone-client==4.1.0"
+      }
+    ]
+  }
+]

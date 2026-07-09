@@ -1,0 +1,22 @@
+{
+  "name": "node-monolith",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Express + Prisma/Postgres + Redis (cache & BullMQ queue) + Elasticsearch. Fixture app — not installed.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "worker": "node src/worker.js"
+  },
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.13.0",
+    "@prisma/client": "^5.14.0",
+    "bullmq": "^5.7.0",
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1",
+    "pg": "^8.11.5"
+  },
+  "devDependencies": {
+    "prisma": "^5.14.0"
+  }
+}

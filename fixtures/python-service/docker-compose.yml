@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: devsecret
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+
+  worker:
+    build: .
+    command: celery -A app.celery_app worker
+    environment:
+      DATABASE_URL: postgresql://postgres:devsecret@postgres:5432/app
+    deploy:
+      replicas: 2
+    depends_on:
+      - redis
+      - mongo

@@ -1,0 +1,13 @@
+services:
+  # Present in compose but never referenced in code or dependencies:
+  # detection must still inventory it (compose is authoritative infra).
+  memcached:
+    image: memcached:1.6
+    ports:
+      - "11211:11211"
+
+  app:
+    build: .
+    command: python -m app
+    env_file:
+      - .env

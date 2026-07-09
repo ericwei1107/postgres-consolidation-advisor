@@ -1,0 +1,5 @@
+fastapi==0.111.0
+uvicorn==0.30.1
+
+# elasticsearch==8.13.0  # removed after the search prototype was dropped;
+# a commented-out dependency must NOT produce a detection.

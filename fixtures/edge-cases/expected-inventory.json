@@ -1,0 +1,28 @@
+[
+  {
+    "id": "kafka:edge-cases",
+    "product": "kafka",
+    "category": ["queue"],
+    "evidence": [
+      {
+        "kind": "env",
+        "file": ".env",
+        "line": 3,
+        "excerpt": "KAFKA_BROKERS=broker1:9092,broker2:9092"
+      }
+    ]
+  },
+  {
+    "id": "memcached:edge-cases",
+    "product": "memcached",
+    "category": ["cache"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 5,
+        "excerpt": "image: memcached:1.6"
+      }
+    ]
+  }
+]

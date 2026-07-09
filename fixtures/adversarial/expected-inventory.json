@@ -1,0 +1,59 @@
+[
+  {
+    "id": "redis:adversarial",
+    "product": "redis",
+    "category": ["cache"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 10,
+        "excerpt": "image: redis:7"
+      },
+      {
+        "kind": "dependency",
+        "file": "package.json",
+        "line": 10,
+        "excerpt": "\"ioredis\": \"^5.4.1\""
+      }
+    ]
+  },
+  {
+    "id": "kafka:adversarial",
+    "product": "kafka",
+    "category": ["queue"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 15,
+        "excerpt": "image: bitnami/kafka:3.7"
+      },
+      {
+        "kind": "dependency",
+        "file": "package.json",
+        "line": 11,
+        "excerpt": "\"kafkajs\": \"^2.2.4\""
+      }
+    ]
+  },
+  {
+    "id": "elasticsearch:adversarial",
+    "product": "elasticsearch",
+    "category": ["search"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 20,
+        "excerpt": "image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0"
+      },
+      {
+        "kind": "dependency",
+        "file": "package.json",
+        "line": 8,
+        "excerpt": "\"@elastic/elasticsearch\": \"^8.13.0\""
+      }
+    ]
+  }
+]

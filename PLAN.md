@@ -380,7 +380,7 @@ outputs, and done-condition.
     emits ESM + CJS; npm registry name `postgres-advisor` availability verified
     (pick fallback name now if taken).
 
-- [ ] **1.2 — Fixture repos (the test bed everything else validates against)**
+- [x] **1.2 — Fixture repos (the test bed everything else validates against)** ✅ 2026-07-08
   - Inputs/dependencies: 1.1.
   - Expected output: `fixtures/` with three miniature but realistic apps, committed
     as plain files (no node_modules): **(a)** `node-monolith` — Express +

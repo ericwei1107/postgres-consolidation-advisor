@@ -1,0 +1,52 @@
+[
+  {
+    "id": "redis:node-monolith",
+    "product": "redis",
+    "category": ["cache", "queue"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 10,
+        "excerpt": "image: redis:7"
+      },
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 40,
+        "excerpt": "replicas: 2"
+      },
+      {
+        "kind": "dependency",
+        "file": "package.json",
+        "line": 16,
+        "excerpt": "\"ioredis\": \"^5.4.1\""
+      },
+      {
+        "kind": "dependency",
+        "file": "package.json",
+        "line": 14,
+        "excerpt": "\"bullmq\": \"^5.7.0\""
+      }
+    ]
+  },
+  {
+    "id": "elasticsearch:node-monolith",
+    "product": "elasticsearch",
+    "category": ["search"],
+    "evidence": [
+      {
+        "kind": "compose",
+        "file": "docker-compose.yml",
+        "line": 15,
+        "excerpt": "image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0"
+      },
+      {
+        "kind": "dependency",
+        "file": "package.json",
+        "line": 12,
+        "excerpt": "\"@elastic/elasticsearch\": \"^8.13.0\""
+      }
+    ]
+  }
+]

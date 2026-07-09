@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: devsecret
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+    ports:
+      - "9200:9200"
+
+  api:
+    build: .
+    command: node src/index.js
+    environment:
+      DATABASE_URL: postgres://postgres:devsecret@postgres:5432/app
+      REDIS_URL: redis://redis:6379
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+
+  worker:
+    build: .
+    command: node src/worker.js
+    environment:
+      REDIS_URL: redis://redis:6379
+    deploy:
+      replicas: 2
+    depends_on:
+      - redis
