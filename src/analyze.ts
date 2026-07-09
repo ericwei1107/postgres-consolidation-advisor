@@ -4,6 +4,7 @@ import { dependenciesDetector } from './detectors/dependencies.js';
 import { envDetector } from './detectors/env.js';
 import { ormDetector } from './detectors/orm.js';
 import { mergeDetections } from './detectors/merge.js';
+import { harvestUsage } from './usage/harvester.js';
 import type { Detection, Detector, DetectorContext } from './detectors/types.js';
 import type { AnalysisResult } from './types.js';
 
@@ -20,6 +21,7 @@ export interface AnalyzeOptions {
   repoPath: string;
   config: AdvisorConfig;
   noAi: boolean;
+  maxFiles?: number;
 }
 
 const DETECTORS: Detector[] = [composeDetector, dependenciesDetector, envDetector, ormDetector];
@@ -42,6 +44,7 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   }
 
   const stores = mergeDetections(detections, ctx.addWarning);
+  await harvestUsage(stores, ctx, { maxFiles: opts.maxFiles });
 
   return {
     schemaVersion: 1,

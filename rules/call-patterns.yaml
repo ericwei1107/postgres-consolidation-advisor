@@ -1,0 +1,47 @@
+# Call-site patterns for Stage 3.1. A file is considered for a product only
+# when it imports/requires one of that product's client libraries.
+products:
+  redis:
+    libraries: [ioredis, redis, node-redis, bullmq, bee-queue, celery]
+    patterns:
+      - '\.(get|set|setex|del|expire|zadd|zrange|publish|subscribe|xadd|eval|incr|add)\s*\('
+      - '\b(Queue|Worker)\s*\('
+  memcached:
+    libraries: [memcached, pymemcache, python-memcached, dalli]
+    patterns:
+      - '\.(get|set|set_multi|delete|incr|decr)\s*\('
+  mongodb:
+    libraries: [mongoose, mongodb, pymongo, motor, mongo, mongoid]
+    patterns:
+      - '\.(find(?:_one|_many)?|insert(?:One|Many|_one|_many)|update(?:One|Many|_one|_many)|replace(?:One|_one)|aggregate|watch)\s*\('
+  elasticsearch:
+    libraries: ['@elastic/elasticsearch', elasticsearch]
+    patterns:
+      - '\.(search|index|update|delete|bulk)\s*\('
+      - '\b(aggs|function_score)\s*:'
+  opensearch:
+    libraries: ['@opensearch-project/opensearch', opensearch-py]
+    patterns:
+      - '\.(search|index|update|delete|bulk)\s*\('
+      - '\b(aggs|function_score)\s*:'
+  kafka:
+    libraries: [kafkajs, confluent-kafka, kafka-python, ruby-kafka]
+    patterns:
+      - '\.(producer|consumer|send|subscribe|run|eachMessage)\s*\('
+      - '\b(Kafka)\s*\('
+  rabbitmq:
+    libraries: [amqplib, pika, bunny]
+    patterns:
+      - '\.(publish|consume|sendToQueue|assertQueue|basic_publish|basic_consume)\s*\('
+  pinecone:
+    libraries: ['@pinecone-database/pinecone', pinecone-client, pinecone]
+    patterns:
+      - '\.(upsert|query|delete)\s*\('
+  weaviate:
+    libraries: [weaviate-client]
+    patterns:
+      - '\.(query|insert|batch|nearText)\s*\('
+  qdrant:
+    libraries: ['@qdrant/js-client-rest', qdrant-client]
+    patterns:
+      - '\.(upsert|search|query|delete)\s*\('

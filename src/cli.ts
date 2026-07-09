@@ -45,6 +45,18 @@ function parseFailOn(value: string): FailOnCondition[] {
   return parts as FailOnCondition[];
 }
 
+function parseMaxFiles(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new AdvisorError({
+      problem: `invalid --max-files value \`${value}\``,
+      cause: '--max-files must be a non-negative integer',
+      fix: 'use a value such as --max-files 10000 (or omit the flag)',
+      docsAnchor: 'configuration',
+    });
+  }
+  return Number(value);
+}
+
 /** Minimal Stage-1 renderers; the real reporters land in Stage 7. */
 function renderJson(result: AnalysisResult): string {
   return JSON.stringify(result, null, 2) + '\n';
@@ -71,7 +83,7 @@ function progress(msg: string): void {
 
 async function runAnalyze(
   pathArg: string,
-  opts: { format?: string; out?: string; ai: boolean; failOn: string },
+  opts: { format?: string; out?: string; ai: boolean; failOn: string; maxFiles?: number; verbose?: boolean },
 ): Promise<never> {
   const repoPath = resolve(pathArg);
   if (!existsSync(repoPath)) {
@@ -97,8 +109,11 @@ async function runAnalyze(
   const config = loadConfig(repoPath);
 
   progress('Scanning…');
-  const result = await analyze({ repoPath, config, noAi: !opts.ai });
+  const result = await analyze({ repoPath, config, noAi: !opts.ai, maxFiles: opts.maxFiles });
   progress(`${result.stores.length} stores detected`);
+  if (opts.verbose) {
+    for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+  }
 
   // Render the artifact.
   const format = opts.format ?? 'terminal';
@@ -163,13 +178,15 @@ program
   .description('analyze a repository (default: current directory)')
   .addOption(new Option('--format <format>', 'report format').choices(['md', 'json', 'html']))
   .option('--out <file>', 'write the report to a file instead of stdout')
+  .option('--max-files <count>', 'limit source files scanned for call sites', parseMaxFiles)
+  .option('--verbose', 'print analysis warnings and skipped-file counts to stderr')
   .option('--no-ai', 'skip Claude calls; use deterministic fallbacks everywhere')
   .option(
     '--fail-on <conditions>',
     `comma-separated exact-match list: ${FAIL_ON_VALUES.join(', ')} (exit 1 on hit)`,
     'none',
   )
-  .action(async (pathArg: string | undefined, opts: { format?: string; out?: string; ai: boolean; failOn: string }) => {
+  .action(async (pathArg: string | undefined, opts: { format?: string; out?: string; ai: boolean; failOn: string; maxFiles?: number; verbose?: boolean }) => {
     await runAnalyze(pathArg ?? '.', opts);
   });
 

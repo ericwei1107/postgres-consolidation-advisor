@@ -1,4 +1,4 @@
-import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
+import { execFileSync, spawnSync, type ExecFileSyncOptions } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,11 @@ function run(args: string[], options: ExecFileSyncOptions = {}) {
     const err = e as { status: number | null; stdout: string; stderr: string };
     return { code: err.status ?? -1, stdout: String(err.stdout), stderr: String(err.stderr) };
   }
+}
+
+function runCapture(args: string[]) {
+  const result = spawnSync('npx', ['tsx', CLI, ...args], { encoding: 'utf8' });
+  return { code: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
 describe('cli smoke (done-conditions for 1.1)', () => {
@@ -64,6 +69,20 @@ describe('cli smoke (done-conditions for 1.1)', () => {
   it('--fail-on keep,borderline passes on an empty repo (comma list parses)', () => {
     const { code } = run(['analyze', FIXTURE_EMPTY, '--fail-on', 'keep,borderline']);
     expect(code).toBe(0);
+  });
+
+  it('--max-files rejects a non-integer limit', () => {
+    const { code, stderr } = run(['analyze', FIXTURE_EMPTY, '--max-files', 'many']);
+    expect(code).toBe(2);
+    expect(stderr).toContain('invalid --max-files value');
+  });
+
+  it('--verbose renders harvester skip warnings on stderr', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pa-smoke-'));
+    writeFileSync(join(dir, 'bundle.ts'), `import Redis from 'ioredis';\n${'x'.repeat(5_001)}`);
+    const { code, stderr } = runCapture(['analyze', dir, '--verbose']);
+    expect(code).toBe(0);
+    expect(stderr).toContain('usage harvester skipped bundle.ts');
   });
 
   it('nonexistent path exits 2 with the error convention', () => {

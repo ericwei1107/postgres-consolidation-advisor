@@ -144,7 +144,7 @@ describe('analyze end-to-end inventory vs fixtures (2.3 merge in the pipeline)',
   function inventoryShape(stores: DetectedStore[]): Record<string, string[]> {
     const shape: Record<string, string[]> = {};
     for (const s of stores) {
-      shape[s.product] = [...new Set(s.evidence.map((e) => `${e.kind}@${e.file}`))].sort();
+      shape[s.product] = [...new Set(s.evidence.filter((e) => e.kind !== 'call-site').map((e) => `${e.kind}@${e.file}`))].sort();
     }
     return shape;
   }

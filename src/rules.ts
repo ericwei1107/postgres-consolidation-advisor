@@ -64,6 +64,16 @@ const ProductsFileSchema = z.object({
 
 type ProductsFile = z.infer<typeof ProductsFileSchema>;
 
+const CallPatternsFileSchema = z.object({
+  products: z.record(
+    z.string(),
+    z.object({
+      libraries: z.array(z.string()).min(1),
+      patterns: z.array(z.string()).min(1),
+    }),
+  ),
+});
+
 export interface ProductRule {
   product: string;
   category: StoreCategory[];
@@ -77,6 +87,12 @@ export interface ClientLibraryRule {
   /** Overrides the product's base category seed (e.g. bullmq → redis as queue). */
   category?: StoreCategory[];
   brokerFromConfig: boolean;
+}
+
+export interface CallPatternRule {
+  product: string;
+  libraries: string[];
+  patterns: RegExp[];
 }
 
 let cachedFile: ProductsFile | undefined;
@@ -161,6 +177,41 @@ export function loadUrlSchemes(): Map<string, string> {
   return new Map(
     Object.entries(loadProductsFile().url_schemes).map(([scheme, product]) => [scheme.toLowerCase(), product]),
   );
+}
+
+let cachedCallPatterns: CallPatternRule[] | undefined;
+
+/** Product-specific import scopes and command patterns for the usage harvester. */
+export function loadCallPatterns(): CallPatternRule[] {
+  if (cachedCallPatterns) return cachedCallPatterns;
+  const file = join(rulesDir(), 'call-patterns.yaml');
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
+  } catch (e) {
+    throw new AdvisorError({
+      problem: 'rules/call-patterns.yaml is not valid YAML',
+      cause: e instanceof Error ? e.message : String(e),
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  const result = CallPatternsFileSchema.safeParse(parsed);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new AdvisorError({
+      problem: `rules/call-patterns.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
+      cause: issue?.message ?? 'schema validation failed',
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  cachedCallPatterns = Object.entries(result.data.products).map(([product, def]) => ({
+    product,
+    libraries: def.libraries.map((library) => library.toLowerCase()),
+    patterns: def.patterns.map((pattern) => new RegExp(pattern, 'g')),
+  }));
+  return cachedCallPatterns;
 }
 
 /** Category seed for a product from the products table, or ['unknown']. */
