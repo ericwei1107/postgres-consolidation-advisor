@@ -429,7 +429,7 @@ outputs, and done-condition.
     caps (billion-laughs hardening); file walking never follows symlinks and
     always ignores node_modules/vendor/.git/dist/build by default.
 
-- [ ] **2.2 — Dependency-manifest detector**
+- [x] **2.2 — Dependency-manifest detector** ✅ 2026-07-09
   - Inputs/dependencies: 2.1's `rules/products.yaml` (extend it with a
     `client_libraries` map: e.g. `ioredis|redis|node-redis → redis`,
     `bullmq|bee-queue → redis(queue)`, `@elastic/elasticsearch`, `mongoose|pymongo|

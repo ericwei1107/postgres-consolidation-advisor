@@ -38,6 +38,16 @@ export function rulesDir(): string {
   });
 }
 
+const ClientLibrarySchema = z
+  .object({
+    product: z.string().optional(),
+    category: z.array(StoreCategorySchema).min(1).optional(),
+    broker_from_config: z.boolean().optional(),
+  })
+  .refine((v) => v.product !== undefined || v.broker_from_config === true, {
+    message: 'a client library needs either `product` or `broker_from_config: true`',
+  });
+
 const ProductsFileSchema = z.object({
   products: z.record(
     z.string(),
@@ -46,7 +56,11 @@ const ProductsFileSchema = z.object({
       image_patterns: z.array(z.string()).default([]),
     }),
   ),
+  client_libraries: z.record(z.string(), ClientLibrarySchema).default({}),
+  broker_schemes: z.record(z.string(), z.string()).default({}),
 });
+
+type ProductsFile = z.infer<typeof ProductsFileSchema>;
 
 export interface ProductRule {
   product: string;
@@ -54,10 +68,19 @@ export interface ProductRule {
   imagePatterns: RegExp[];
 }
 
-let cachedProducts: ProductRule[] | undefined;
+export interface ClientLibraryRule {
+  library: string;
+  /** Absent only when brokerFromConfig (the backing store is named in app config). */
+  product?: string;
+  /** Overrides the product's base category seed (e.g. bullmq → redis as queue). */
+  category?: StoreCategory[];
+  brokerFromConfig: boolean;
+}
 
-export function loadProducts(): ProductRule[] {
-  if (cachedProducts) return cachedProducts;
+let cachedFile: ProductsFile | undefined;
+
+function loadProductsFile(): ProductsFile {
+  if (cachedFile) return cachedFile;
   const file = join(rulesDir(), 'products.yaml');
   let parsed: unknown;
   try {
@@ -80,12 +103,50 @@ export function loadProducts(): ProductRule[] {
       docsAnchor: 'troubleshooting',
     });
   }
-  cachedProducts = Object.entries(result.data.products).map(([product, def]) => ({
+  cachedFile = result.data;
+  return cachedFile;
+}
+
+let cachedProducts: ProductRule[] | undefined;
+
+export function loadProducts(): ProductRule[] {
+  if (cachedProducts) return cachedProducts;
+  cachedProducts = Object.entries(loadProductsFile().products).map(([product, def]) => ({
     product,
     category: def.category,
     imagePatterns: def.image_patterns.map((p) => new RegExp(p, 'i')),
   }));
   return cachedProducts;
+}
+
+let cachedLibraries: Map<string, ClientLibraryRule> | undefined;
+
+/** Dependency-name → rule, keyed lowercase (PyPI normalization happens at lookup). */
+export function loadClientLibraries(): Map<string, ClientLibraryRule> {
+  if (cachedLibraries) return cachedLibraries;
+  cachedLibraries = new Map(
+    Object.entries(loadProductsFile().client_libraries).map(([library, def]) => [
+      library.toLowerCase(),
+      {
+        library,
+        ...(def.product !== undefined ? { product: def.product } : {}),
+        ...(def.category !== undefined ? { category: def.category } : {}),
+        brokerFromConfig: def.broker_from_config === true,
+      },
+    ]),
+  );
+  return cachedLibraries;
+}
+
+/** Literal broker-URL scheme → product (Celery rule, PLAN.md 2.2). */
+export function loadBrokerSchemes(): Record<string, string> {
+  return loadProductsFile().broker_schemes;
+}
+
+/** Category seed for a product from the products table, or ['unknown']. */
+export function productCategories(product: string): StoreCategory[] {
+  const def = loadProductsFile().products[product];
+  return def ? [...def.category] : ['unknown'];
 }
 
 /** Match a container image reference to a product, or null. */

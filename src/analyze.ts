@@ -1,5 +1,6 @@
 import type { AdvisorConfig } from './config.js';
 import { composeDetector } from './detectors/compose.js';
+import { dependenciesDetector } from './detectors/dependencies.js';
 import type { Detector, DetectorContext } from './detectors/types.js';
 import type { AnalysisResult, DetectedStore } from './types.js';
 
@@ -7,8 +8,9 @@ import type { AnalysisResult, DetectedStore } from './types.js';
  * Pipeline entry point (PLAN.md §2):
  *   Scanner → Detectors → UsageExtractor → RoleClassifier → FitScorer → SnippetGen → Reporters
  *
- * Stage 2.1 wires the first detector (compose/k8s). Detectors run isolated: a
- * throw becomes a warning so one failure never sinks the whole run. Usage
+ * Stage 2.x wires the detectors (compose/k8s, dependency manifests). Detectors
+ * run isolated: a throw becomes a warning so one failure never sinks the whole
+ * run. Cross-detector dedup by instance identity is Stage 2.3; usage
  * extraction, roles, and verdicts arrive in later stages.
  */
 export interface AnalyzeOptions {
@@ -17,7 +19,7 @@ export interface AnalyzeOptions {
   noAi: boolean;
 }
 
-const DETECTORS: Detector[] = [composeDetector];
+const DETECTORS: Detector[] = [composeDetector, dependenciesDetector];
 
 export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   const warnings: string[] = [];

@@ -1,12 +1,13 @@
-# Product identity table — PLAN.md 2.1.
+# Product identity table — PLAN.md 2.1 (products) + 2.2 (client_libraries).
 #
 # `image_patterns` are case-insensitive regexes tested against a container image
 # reference (docker-compose `image:` or a k8s container `image:`). `category` is
 # the coarse seed the detector attaches; roles are refined later (Stage 3).
 #
-# Postgres is deliberately absent: it is the consolidation target, not a store to
-# inventory. `client_libraries` (used by the dependency detector, Stage 2.2) will
-# be added to this file in that stage.
+# Postgres is deliberately absent from `products`: it is the consolidation
+# target, not a store to inventory. Client libraries that imply Postgres
+# (pg/psycopg/asyncpg/...) map to the pseudo-product `postgres`, which the
+# dependency detector recognizes and skips.
 products:
   redis:
     category: [cache]
@@ -67,3 +68,114 @@ products:
     category: [unknown]
     image_patterns:
       - '(^|/)minio(/|:|$)'
+
+  # Vector stores reached mostly via client libraries; pinecone is hosted-only
+  # (no self-hostable image), weaviate/qdrant also ship containers.
+  pinecone:
+    category: [vector]
+    image_patterns: []
+
+  weaviate:
+    category: [vector]
+    image_patterns:
+      - 'semitechnologies/weaviate'
+      - 'cr\.weaviate\.io/'
+
+  qdrant:
+    category: [vector]
+    image_patterns:
+      - '(^|/)qdrant(/|:|$)'
+
+# Dependency detector data — PLAN.md 2.2.
+#
+# `client_libraries` maps a dependency name (npm package, PyPI project, Ruby
+# gem, or Go module path — Go paths are matched after stripping a trailing
+# /vN major-version suffix) to the product it implies. Optional `category`
+# overrides the product's base category seed for that library (bullmq is Redis
+# used as a queue). `broker_from_config: true` marks libraries whose backing
+# store is named in app config, not by the library (Celery): only a LITERAL
+# broker URL resolves to a product via `broker_schemes`; env-var/settings
+# indirection or absent config yields the `unknown-broker` pseudo-product —
+# never a guess.
+client_libraries:
+  # redis
+  ioredis: { product: redis }
+  redis: { product: redis } # npm `redis`, PyPI `redis`, Ruby `redis`
+  node-redis: { product: redis }
+  bullmq: { product: redis, category: [queue] }
+  bee-queue: { product: redis, category: [queue] }
+  sidekiq: { product: redis, category: [queue] }
+  'github.com/redis/go-redis': { product: redis }
+  'github.com/go-redis/redis': { product: redis }
+
+  # memcached
+  memcached: { product: memcached } # npm
+  pymemcache: { product: memcached }
+  python-memcached: { product: memcached }
+  dalli: { product: memcached } # Ruby
+
+  # elasticsearch / opensearch
+  '@elastic/elasticsearch': { product: elasticsearch }
+  elasticsearch: { product: elasticsearch } # PyPI, Ruby
+  '@opensearch-project/opensearch': { product: opensearch }
+  opensearch-py: { product: opensearch }
+  'github.com/elastic/go-elasticsearch': { product: elasticsearch }
+
+  # mongodb
+  mongoose: { product: mongodb }
+  mongodb: { product: mongodb } # npm driver
+  pymongo: { product: mongodb }
+  motor: { product: mongodb }
+  mongo: { product: mongodb } # Ruby driver
+  mongoid: { product: mongodb } # Ruby ODM
+  'go.mongodb.org/mongo-driver': { product: mongodb }
+
+  # kafka
+  kafkajs: { product: kafka }
+  confluent-kafka: { product: kafka }
+  kafka-python: { product: kafka }
+  ruby-kafka: { product: kafka }
+  'github.com/segmentio/kafka-go': { product: kafka }
+  'github.com/confluentinc/confluent-kafka-go': { product: kafka }
+
+  # rabbitmq
+  amqplib: { product: rabbitmq }
+  pika: { product: rabbitmq }
+  bunny: { product: rabbitmq } # Ruby
+  'github.com/rabbitmq/amqp091-go': { product: rabbitmq }
+
+  # celery: broker named in config, not by the library
+  celery: { broker_from_config: true, category: [queue] }
+
+  # influxdb / clickhouse / neo4j
+  '@influxdata/influxdb-client': { product: influxdb }
+  influxdb-client: { product: influxdb } # PyPI
+  '@clickhouse/client': { product: clickhouse }
+  clickhouse-driver: { product: clickhouse } # PyPI
+  clickhouse-connect: { product: clickhouse } # PyPI
+  neo4j-driver: { product: neo4j } # npm + PyPI share the name
+
+  # vector stores
+  '@pinecone-database/pinecone': { product: pinecone }
+  pinecone-client: { product: pinecone }
+  pinecone: { product: pinecone } # current PyPI name
+  weaviate-client: { product: weaviate } # npm + PyPI share the name
+  '@qdrant/js-client-rest': { product: qdrant }
+  qdrant-client: { product: qdrant } # PyPI
+
+  # postgres clients — recognized so they are NEVER inventoried (pseudo-product)
+  pg: { product: postgres } # npm + Ruby gem share the name
+  psycopg: { product: postgres }
+  psycopg2: { product: postgres }
+  psycopg2-binary: { product: postgres }
+  asyncpg: { product: postgres }
+  'github.com/lib/pq': { product: postgres }
+  'github.com/jackc/pgx': { product: postgres }
+
+# Literal broker-URL scheme → product, for `broker_from_config` libraries.
+# A scheme not listed here resolves to `unknown-broker` (never guess).
+broker_schemes:
+  redis: redis
+  rediss: redis
+  amqp: rabbitmq
+  amqps: rabbitmq
