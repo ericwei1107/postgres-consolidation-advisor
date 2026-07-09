@@ -58,6 +58,8 @@ const ProductsFileSchema = z.object({
   ),
   client_libraries: z.record(z.string(), ClientLibrarySchema).default({}),
   broker_schemes: z.record(z.string(), z.string()).default({}),
+  env_vars: z.record(z.string(), z.string()).default({}),
+  url_schemes: z.record(z.string(), z.string()).default({}),
 });
 
 type ProductsFile = z.infer<typeof ProductsFileSchema>;
@@ -141,6 +143,24 @@ export function loadClientLibraries(): Map<string, ClientLibraryRule> {
 /** Literal broker-URL scheme → product (Celery rule, PLAN.md 2.2). */
 export function loadBrokerSchemes(): Record<string, string> {
   return loadProductsFile().broker_schemes;
+}
+
+let cachedEnvVars: Map<string, string> | undefined;
+
+/** Well-known env variable NAME → product, keyed uppercase (PLAN.md 2.3). */
+export function loadEnvVars(): Map<string, string> {
+  if (cachedEnvVars) return cachedEnvVars;
+  cachedEnvVars = new Map(
+    Object.entries(loadProductsFile().env_vars).map(([name, product]) => [name.toUpperCase(), product]),
+  );
+  return cachedEnvVars;
+}
+
+/** URL scheme → product for env/config values, keyed lowercase (PLAN.md 2.3). */
+export function loadUrlSchemes(): Map<string, string> {
+  return new Map(
+    Object.entries(loadProductsFile().url_schemes).map(([scheme, product]) => [scheme.toLowerCase(), product]),
+  );
 }
 
 /** Category seed for a product from the products table, or ['unknown']. */

@@ -7,7 +7,7 @@ import {
 } from '../rules.js';
 import { scanFiles, toRelPosix } from '../scan.js';
 import type { DetectedStore, Evidence, StoreCategory } from '../types.js';
-import type { Detector, DetectorContext } from './types.js';
+import type { Detection, Detector, DetectorContext } from './types.js';
 
 /**
  * Dependency-manifest detector (PLAN.md 2.2).
@@ -213,17 +213,18 @@ async function resolveCeleryBroker(ctx: DetectorContext): Promise<string> {
 
 export const dependenciesDetector: Detector = {
   name: 'dependencies',
-  async detect(ctx: DetectorContext): Promise<DetectedStore[]> {
-    // One store per (manifest file, product); merging across files/detectors
-    // by instance identity is Stage 2.3.
+  async detect(ctx: DetectorContext): Promise<Detection[]> {
+    // A dependency line names a product but no specific instance, so every
+    // detection lands in the product's default bucket (PLAN.md 2.3 identity
+    // rule); the merge layer folds it into a named instance when unambiguous.
     const stores = new Map<string, DetectedStore>();
     let brokerProduct: string | undefined; // resolved lazily, once per repo
 
     const add = (rel: string, product: string, categories: StoreCategory[], ev: Evidence) => {
-      const key = `${rel}\0${product}`;
+      const key = product;
       let store = stores.get(key);
       if (!store) {
-        store = { id: `${product}:${rel}`, product, category: [], evidence: [] };
+        store = { id: `${product}:default`, product, category: [], evidence: [] };
         stores.set(key, store);
       }
       for (const c of categories) {
@@ -267,6 +268,6 @@ export const dependenciesDetector: Detector = {
       }
     }
 
-    return [...stores.values()];
+    return [...stores.values()].map((store) => ({ store, identity: { kind: 'default' } }));
   },
 };

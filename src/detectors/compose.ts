@@ -4,8 +4,7 @@ import { redactedAssignment } from '../redact.js';
 import { matchImage, type ProductRule } from '../rules.js';
 import { scanFiles, toRelPosix } from '../scan.js';
 import type { Evidence } from '../types.js';
-import type { DetectedStore } from '../types.js';
-import type { Detector, DetectorContext } from './types.js';
+import type { Detection, Detector, DetectorContext } from './types.js';
 
 /**
  * docker-compose / k8s / Helm manifest detector (PLAN.md 2.1).
@@ -58,20 +57,24 @@ function envPairs(environment: unknown): [string, string][] {
   return [];
 }
 
-function storeFromMatch(
+function detectionFromMatch(
   rule: ProductRule,
-  instanceName: string,
+  serviceName: string | undefined,
   evidence: Evidence[],
-): DetectedStore {
+): Detection {
   return {
-    id: `${rule.product}:${instanceName}`,
-    product: rule.product,
-    category: [...rule.category],
-    evidence,
+    store: {
+      id: `${rule.product}:${serviceName ?? 'default'}`,
+      product: rule.product,
+      category: [...rule.category],
+      evidence,
+    },
+    // k8s manifests carry no compose-style service identity → default bucket.
+    identity: serviceName !== undefined ? { kind: 'service', name: serviceName } : { kind: 'default' },
   };
 }
 
-function parseCompose(file: string, rel: string, raw: string, ctx: DetectorContext): DetectedStore[] {
+function parseCompose(file: string, rel: string, raw: string, ctx: DetectorContext): Detection[] {
   let docs;
   try {
     docs = parseAllDocuments(raw);
@@ -81,7 +84,7 @@ function parseCompose(file: string, rel: string, raw: string, ctx: DetectorConte
   }
 
   const rawLines = raw.split('\n');
-  const stores: DetectedStore[] = [];
+  const detections: Detection[] = [];
 
   for (const doc of docs) {
     if (doc.errors.length > 0) {
@@ -139,10 +142,10 @@ function parseCompose(file: string, rel: string, raw: string, ctx: DetectorConte
         });
       }
 
-      stores.push(storeFromMatch(rule, name, evidence));
+      detections.push(detectionFromMatch(rule, name, evidence));
     }
   }
-  return stores;
+  return detections;
 }
 
 /** Recursively collect container `image:` refs from a k8s manifest node. */
@@ -159,7 +162,7 @@ function collectK8sImages(node: unknown, out: string[]): void {
   }
 }
 
-function parseK8s(file: string, rel: string, raw: string, ctx: DetectorContext): DetectedStore[] {
+function parseK8s(file: string, rel: string, raw: string, ctx: DetectorContext): Detection[] {
   let docs;
   try {
     docs = parseAllDocuments(raw);
@@ -169,7 +172,7 @@ function parseK8s(file: string, rel: string, raw: string, ctx: DetectorContext):
   }
 
   const rawLines = raw.split('\n');
-  const stores: DetectedStore[] = [];
+  const detections: Detection[] = [];
   const seen = new Set<string>();
 
   for (const doc of docs) {
@@ -195,8 +198,8 @@ function parseK8s(file: string, rel: string, raw: string, ctx: DetectorContext):
       if (seen.has(key)) continue;
       seen.add(key);
       const line = lineOf(rawLines, resolved.value);
-      stores.push(
-        storeFromMatch(rule, `${rule.product}`, [
+      detections.push(
+        detectionFromMatch(rule, undefined, [
           {
             kind: 'compose',
             file: rel,
@@ -207,12 +210,12 @@ function parseK8s(file: string, rel: string, raw: string, ctx: DetectorContext):
       );
     }
   }
-  return stores;
+  return detections;
 }
 
 export const composeDetector: Detector = {
   name: 'compose',
-  async detect(ctx: DetectorContext): Promise<DetectedStore[]> {
+  async detect(ctx: DetectorContext): Promise<Detection[]> {
     // Helm: Go-templated YAML under templates/ can't be parsed as plain YAML.
     // Skip it wholesale with a single warning when a Chart.yaml is present.
     const charts = await scanFiles(ctx.repoPath, ['**/Chart.yaml'], ctx.config);
@@ -222,15 +225,15 @@ export const composeDetector: Detector = {
     const composeFiles = await scanFiles(ctx.repoPath, COMPOSE_GLOBS, ctx.config, helmIgnore);
     const k8sFiles = await scanFiles(ctx.repoPath, K8S_GLOBS, ctx.config, helmIgnore);
 
-    const stores: DetectedStore[] = [];
+    const detections: Detection[] = [];
     for (const file of composeFiles) {
       const rel = toRelPosix(ctx.repoPath, file);
-      stores.push(...parseCompose(file, rel, readFileSync(file, 'utf8'), ctx));
+      detections.push(...parseCompose(file, rel, readFileSync(file, 'utf8'), ctx));
     }
     for (const file of k8sFiles) {
       const rel = toRelPosix(ctx.repoPath, file);
-      stores.push(...parseK8s(file, rel, readFileSync(file, 'utf8'), ctx));
+      detections.push(...parseK8s(file, rel, readFileSync(file, 'utf8'), ctx));
     }
-    return stores;
+    return detections;
   },
 };

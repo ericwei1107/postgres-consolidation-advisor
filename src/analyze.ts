@@ -1,16 +1,18 @@
 import type { AdvisorConfig } from './config.js';
 import { composeDetector } from './detectors/compose.js';
 import { dependenciesDetector } from './detectors/dependencies.js';
-import type { Detector, DetectorContext } from './detectors/types.js';
-import type { AnalysisResult, DetectedStore } from './types.js';
+import { envDetector } from './detectors/env.js';
+import { mergeDetections } from './detectors/merge.js';
+import type { Detection, Detector, DetectorContext } from './detectors/types.js';
+import type { AnalysisResult } from './types.js';
 
 /**
  * Pipeline entry point (PLAN.md §2):
  *   Scanner → Detectors → UsageExtractor → RoleClassifier → FitScorer → SnippetGen → Reporters
  *
- * Stage 2.x wires the detectors (compose/k8s, dependency manifests). Detectors
- * run isolated: a throw becomes a warning so one failure never sinks the whole
- * run. Cross-detector dedup by instance identity is Stage 2.3; usage
+ * Stage 2.x wires the detectors (compose/k8s, dependency manifests, env/config)
+ * and the instance-identity merge (2.3). Detectors run isolated: a throw
+ * becomes a warning so one failure never sinks the whole run. Usage
  * extraction, roles, and verdicts arrive in later stages.
  */
 export interface AnalyzeOptions {
@@ -19,7 +21,7 @@ export interface AnalyzeOptions {
   noAi: boolean;
 }
 
-const DETECTORS: Detector[] = [composeDetector, dependenciesDetector];
+const DETECTORS: Detector[] = [composeDetector, dependenciesDetector, envDetector];
 
 export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   const warnings: string[] = [];
@@ -29,14 +31,16 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
     addWarning: (message) => warnings.push(message),
   };
 
-  const stores: DetectedStore[] = [];
+  const detections: Detection[] = [];
   for (const detector of DETECTORS) {
     try {
-      stores.push(...(await detector.detect(ctx)));
+      detections.push(...(await detector.detect(ctx)));
     } catch (e) {
       warnings.push(`detector "${detector.name}" failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+
+  const stores = mergeDetections(detections, ctx.addWarning);
 
   return {
     schemaVersion: 1,

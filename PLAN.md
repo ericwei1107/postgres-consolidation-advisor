@@ -446,7 +446,7 @@ outputs, and done-condition.
   - Done-condition: unit tests vs fixtures pass, including the `edge-cases` fixture's
     commented-out dependency producing NO detection.
 
-- [ ] **2.3 — Env/config detector**
+- [x] **2.3 — Env/config detector** ✅ 2026-07-09
   - Inputs/dependencies: 2.2.
   - Expected output: `src/detectors/env.ts` — scans `.env*`, `config/**`,
     `settings.py`, `*.config.{js,ts}` for URL-shaped values and known var names

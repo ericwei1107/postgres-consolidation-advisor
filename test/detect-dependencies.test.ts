@@ -10,12 +10,12 @@ const FIXTURES_DIR = join(__dirname, '..', 'fixtures');
 
 async function run(repoPath: string, config: AdvisorConfig = DEFAULT_CONFIG) {
   const warnings: string[] = [];
-  const stores = await dependenciesDetector.detect({
+  const detections = await dependenciesDetector.detect({
     repoPath,
     config,
     addWarning: (m) => warnings.push(m),
   });
-  return { stores, warnings };
+  return { stores: detections.map((d) => d.store), warnings };
 }
 
 /** (product, file) pairs from dependency-kind evidence — the done-condition key. */

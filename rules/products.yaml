@@ -179,3 +179,64 @@ broker_schemes:
   rediss: redis
   amqp: rabbitmq
   amqps: rabbitmq
+
+# Env/config detector data — PLAN.md 2.3.
+#
+# `env_vars` maps well-known variable NAMES (matched case-insensitively in
+# .env*/config files) to products. Generic names whose product depends on the
+# value (DATABASE_URL, BROKER_URL, CACHE_URL, ...) are deliberately absent:
+# they resolve through `url_schemes` below, so DATABASE_URL=postgres://...
+# correctly detects nothing (Postgres is the consolidation target) while
+# DATABASE_URL=mongodb://... detects mongodb.
+env_vars:
+  REDIS_URL: redis
+  REDIS_HOST: redis
+  REDISCLOUD_URL: redis
+  REDISTOGO_URL: redis
+  MEMCACHED_URL: memcached
+  MEMCACHED_SERVERS: memcached
+  MEMCACHIER_SERVERS: memcached
+  ELASTICSEARCH_URL: elasticsearch
+  ELASTICSEARCH_HOSTS: elasticsearch
+  ELASTIC_URL: elasticsearch
+  BONSAI_URL: elasticsearch
+  OPENSEARCH_URL: opensearch
+  MONGODB_URI: mongodb
+  MONGODB_URL: mongodb
+  MONGO_URL: mongodb
+  MONGO_URI: mongodb
+  KAFKA_BROKERS: kafka
+  KAFKA_BOOTSTRAP_SERVERS: kafka
+  KAFKA_URL: kafka
+  RABBITMQ_URL: rabbitmq
+  AMQP_URL: rabbitmq
+  CLOUDAMQP_URL: rabbitmq
+  INFLUXDB_URL: influxdb
+  INFLUX_URL: influxdb
+  CLICKHOUSE_URL: clickhouse
+  CLICKHOUSE_HOST: clickhouse
+  NEO4J_URI: neo4j
+  NEO4J_URL: neo4j
+  PINECONE_API_KEY: pinecone
+  PINECONE_ENVIRONMENT: pinecone
+  WEAVIATE_URL: weaviate
+  QDRANT_URL: qdrant
+
+# URL scheme → product, for URL-shaped values found in env/config files
+# (any variable name). postgres/postgresql map to the `postgres`
+# pseudo-product so the detector recognizes and skips them. Unlisted schemes
+# (http, mysql, ...) detect nothing — an http:// URL identifies no store.
+url_schemes:
+  redis: redis
+  rediss: redis
+  memcached: memcached
+  mongodb: mongodb
+  mongodb+srv: mongodb
+  amqp: rabbitmq
+  amqps: rabbitmq
+  kafka: kafka
+  bolt: neo4j
+  neo4j: neo4j
+  clickhouse: clickhouse
+  postgres: postgres
+  postgresql: postgres
