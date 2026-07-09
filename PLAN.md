@@ -30,6 +30,11 @@ ruleset (§1) and (b) the CI gate — and *vendor neutrality*: this tool is the 
 the vendors structurally can't be. Source-grading (below) exists to defend exactly
 that position.
 
+**Workflow reminder (every session, every task):** after each code change,
+commit it — see the commit-message convention in §0 below. Don't batch
+unrelated changes into one commit or leave finished work uncommitted at the
+end of a session.
+
 ---
 
 ## 0. Decisions made up front (so no task has to make them)
@@ -66,6 +71,13 @@ fall back to the untailored template.
 the specific threshold comparison that produced it. When a threshold variable can't
 be observed statically, the verdict is `borderline`, confidence `low`, with the
 observable range stated and a pointer to live-stats mode.
+
+**Commit-message convention, applied after every code change:** subject line
+under 50 characters, capitalized, imperative mood ("Add," "Fix," "Refactor" —
+not "Added" or "Fixes"), no trailing period; a blank line; then a body wrapped
+at ~72 characters per line explaining *why* the change was made, not just what
+changed. Keep each commit scoped to one logical change — split unrelated
+changes into separate commits rather than combining them.
 
 ---
 
