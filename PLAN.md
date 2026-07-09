@@ -481,7 +481,7 @@ outputs, and done-condition.
     with a single env Evidence; `node-monolith`'s redis is ONE store with ≥2
     evidence kinds; dedup logic unit-tested.
 
-- [ ] **2.4 — ORM-schema detector**
+- [x] **2.4 — ORM-schema detector** ✅ 2026-07-09
   - Inputs/dependencies: 2.3.
   - Expected output: `src/detectors/orm.ts` — parses Prisma `schema.prisma`
     (datasource block + model shapes), Mongoose schema files (field counts, types,

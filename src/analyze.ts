@@ -2,6 +2,7 @@ import type { AdvisorConfig } from './config.js';
 import { composeDetector } from './detectors/compose.js';
 import { dependenciesDetector } from './detectors/dependencies.js';
 import { envDetector } from './detectors/env.js';
+import { ormDetector } from './detectors/orm.js';
 import { mergeDetections } from './detectors/merge.js';
 import type { Detection, Detector, DetectorContext } from './detectors/types.js';
 import type { AnalysisResult } from './types.js';
@@ -21,7 +22,7 @@ export interface AnalyzeOptions {
   noAi: boolean;
 }
 
-const DETECTORS: Detector[] = [composeDetector, dependenciesDetector, envDetector];
+const DETECTORS: Detector[] = [composeDetector, dependenciesDetector, envDetector, ormDetector];
 
 export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   const warnings: string[] = [];

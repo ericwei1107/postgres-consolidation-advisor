@@ -1,0 +1,181 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ORM-schema detector (done-conditions for 2.4) > node-monolith: yields Prisma-on-Postgres (snapshot), never inventoried as a store 1`] = `
+[
+  {
+    "file": "prisma/schema.prisma",
+    "line": 10,
+    "orm": "prisma",
+    "product": "postgres",
+    "summary": {
+      "fields": [
+        {
+          "name": "id",
+          "nested": false,
+          "type": "Int",
+        },
+        {
+          "name": "email",
+          "nested": false,
+          "type": "String",
+        },
+        {
+          "name": "name",
+          "nested": false,
+          "type": "String?",
+        },
+        {
+          "name": "posts",
+          "nested": false,
+          "type": "Post[]",
+        },
+      ],
+      "model": "User",
+    },
+  },
+  {
+    "file": "prisma/schema.prisma",
+    "line": 17,
+    "orm": "prisma",
+    "product": "postgres",
+    "summary": {
+      "fields": [
+        {
+          "name": "id",
+          "nested": false,
+          "type": "Int",
+        },
+        {
+          "name": "title",
+          "nested": false,
+          "type": "String",
+        },
+        {
+          "name": "body",
+          "nested": false,
+          "type": "String",
+        },
+        {
+          "name": "published",
+          "nested": false,
+          "type": "Boolean",
+        },
+        {
+          "name": "author",
+          "nested": false,
+          "type": "User",
+        },
+        {
+          "name": "authorId",
+          "nested": false,
+          "type": "Int",
+        },
+      ],
+      "model": "Post",
+    },
+  },
+]
+`;
+
+exports[`ORM-schema detector (done-conditions for 2.4) > python-service: typed extraction (snapshot) — pymongo doc model + SQLAlchemy models 1`] = `
+[
+  {
+    "file": "app/db.py",
+    "line": 10,
+    "orm": "sqlalchemy",
+    "product": "relational",
+    "summary": {
+      "fields": [
+        {
+          "name": "id",
+          "nested": false,
+          "type": "Integer",
+        },
+        {
+          "name": "email",
+          "nested": false,
+          "type": "String",
+        },
+        {
+          "name": "name",
+          "nested": false,
+          "type": "String",
+        },
+        {
+          "name": "orders",
+          "nested": false,
+          "type": "relationship",
+        },
+      ],
+      "model": "User",
+    },
+  },
+  {
+    "file": "app/db.py",
+    "line": 19,
+    "orm": "sqlalchemy",
+    "product": "relational",
+    "summary": {
+      "fields": [
+        {
+          "name": "id",
+          "nested": false,
+          "type": "Integer",
+        },
+        {
+          "name": "total_cents",
+          "nested": false,
+          "type": "Integer",
+        },
+        {
+          "name": "user_id",
+          "nested": false,
+          "type": "Integer",
+        },
+        {
+          "name": "user",
+          "nested": false,
+          "type": "relationship",
+        },
+      ],
+      "model": "Order",
+    },
+  },
+  {
+    "file": "app/documents.py",
+    "line": 12,
+    "orm": "pymongo",
+    "product": "mongodb",
+    "summary": {
+      "fields": [
+        {
+          "name": "display_name",
+          "nested": false,
+          "type": "unknown",
+        },
+        {
+          "name": "bio",
+          "nested": false,
+          "type": "unknown",
+        },
+        {
+          "name": "prefs",
+          "nested": true,
+          "type": "object",
+        },
+        {
+          "name": "tags",
+          "nested": false,
+          "type": "array",
+        },
+        {
+          "name": "views",
+          "nested": false,
+          "type": "number",
+        },
+      ],
+      "model": "profiles",
+    },
+  },
+]
+`;

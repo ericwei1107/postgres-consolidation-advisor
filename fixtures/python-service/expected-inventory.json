@@ -40,6 +40,12 @@
         "file": "requirements.txt",
         "line": 7,
         "excerpt": "pymongo==4.7.2"
+      },
+      {
+        "kind": "orm-schema",
+        "file": "app/documents.py",
+        "line": 12,
+        "excerpt": "model profiles (pymongo): display_name, bio, prefs object (nested), tags array, views number"
       }
     ]
   },
