@@ -406,7 +406,7 @@ outputs, and done-condition.
 
 ### Stage 2 — Detection engine
 
-- [ ] **2.1 — docker-compose / k8s manifest detector**
+- [x] **2.1 — docker-compose / k8s manifest detector** ✅ 2026-07-09
   - Inputs/dependencies: 1.1 types, 1.2 fixtures; `yaml` package.
   - Expected output: `src/detectors/compose.ts` — parses any `docker-compose*.yml`,
     `compose.y?ml` (modern default names), and `k8s/**/*.yaml`; if `Chart.yaml`

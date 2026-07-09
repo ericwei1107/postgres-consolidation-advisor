@@ -1,0 +1,69 @@
+# Product identity table — PLAN.md 2.1.
+#
+# `image_patterns` are case-insensitive regexes tested against a container image
+# reference (docker-compose `image:` or a k8s container `image:`). `category` is
+# the coarse seed the detector attaches; roles are refined later (Stage 3).
+#
+# Postgres is deliberately absent: it is the consolidation target, not a store to
+# inventory. `client_libraries` (used by the dependency detector, Stage 2.2) will
+# be added to this file in that stage.
+products:
+  redis:
+    category: [cache]
+    image_patterns:
+      - '(^|/)redis(/|:|$)'
+      - '(^|/)redis-stack(/|:|$)'
+      - '(^|/)valkey(/|:|$)'
+
+  memcached:
+    category: [cache]
+    image_patterns:
+      - '(^|/)memcached(/|:|$)'
+
+  elasticsearch:
+    category: [search]
+    image_patterns:
+      - 'elasticsearch'
+
+  opensearch:
+    category: [search]
+    image_patterns:
+      - 'opensearchproject/opensearch'
+      - '(^|/)opensearch(/|:|$)'
+
+  mongodb:
+    category: [document]
+    image_patterns:
+      - '(^|/)mongo(/|:|$)'
+      - 'mongodb'
+
+  kafka:
+    category: [queue]
+    image_patterns:
+      - 'kafka'
+      - 'redpanda'
+
+  rabbitmq:
+    category: [queue]
+    image_patterns:
+      - 'rabbitmq'
+
+  influxdb:
+    category: [timeseries]
+    image_patterns:
+      - 'influxdb'
+
+  clickhouse:
+    category: [olap]
+    image_patterns:
+      - 'clickhouse'
+
+  neo4j:
+    category: [graph]
+    image_patterns:
+      - '(^|/)neo4j(/|:|$)'
+
+  minio:
+    category: [unknown]
+    image_patterns:
+      - '(^|/)minio(/|:|$)'

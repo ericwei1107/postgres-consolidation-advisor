@@ -11,12 +11,6 @@
         "excerpt": "image: redis:7"
       },
       {
-        "kind": "compose",
-        "file": "docker-compose.yml",
-        "line": 40,
-        "excerpt": "replicas: 2"
-      },
-      {
         "kind": "dependency",
         "file": "package.json",
         "line": 16,
