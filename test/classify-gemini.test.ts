@@ -55,6 +55,21 @@ describe('Gemini role disambiguation (Stage 3.3)', () => {
     expect(calls).toEqual([]);
   });
 
+  it('keeps a high-confidence rule role and replaces only the weak one', async () => {
+    const mixed: StoreRole[] = [
+      { storeId: store.id, role: 'cache', confidence: 'high', classifiedBy: 'rule', evidence: store.evidence },
+      { storeId: store.id, role: 'unknown', confidence: 'low', classifiedBy: 'rule', evidence: store.evidence },
+    ];
+    const { client } = clientWith('{"roles":[{"role":"cache","confidence":"medium"},{"role":"queue","confidence":"high"}],"rationale":"queue usage seen"}');
+    const roles = await classifyStoresWithGemini([store], mixed, usage, { noAi: false, client });
+    // The deterministic cache/high survives; Gemini's duplicate cache role is
+    // dropped; its new queue role replaces the weak unknown.
+    expect(roles).toMatchObject([
+      { role: 'cache', confidence: 'high', classifiedBy: 'rule' },
+      { role: 'queue', confidence: 'high', classifiedBy: 'gemini' },
+    ]);
+  });
+
   const live = process.env.RUN_LIVE_TESTS === '1' ? it : it.skip;
   live('classifies a real prompt when live tests are enabled', async () => {
     expect(process.env.GEMINI_API_KEY).toBeTruthy();

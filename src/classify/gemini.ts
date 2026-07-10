@@ -45,8 +45,13 @@ function evidenceFromUsage(usage: UsageEvidence[]): Evidence[] {
   return usage.map(({ kind, file, line, excerpt }) => ({ kind, file, ...(line ? { line } : {}), excerpt }));
 }
 
+/** Weak = the rule pass couldn't commit: unknown role or low confidence. */
+function isWeak(role: StoreRole): boolean {
+  return role.role === 'unknown' || role.confidence === 'low';
+}
+
 function needsGemini(roles: StoreRole[]): boolean {
-  return roles.some((role) => role.role === 'unknown' || role.confidence === 'low');
+  return roles.some(isWeak);
 }
 
 function prompt(store: DetectedStore, usage: UsageEvidence[]): string {
@@ -113,7 +118,11 @@ async function classifyOne(
   throw lastRateLimit ?? new Error('no Gemini models configured');
 }
 
-/** Replaces ambiguous rule results with Gemini roles; all API failures retain rule output. */
+/**
+ * Replaces only a store's WEAK rule roles (unknown/low) with Gemini roles —
+ * a high/medium deterministic role always survives, and a Gemini role that
+ * duplicates a kept role's name is dropped. All API failures retain rule output.
+ */
 export async function classifyStoresWithGemini(
   stores: DetectedStore[], ruleRoles: StoreRole[], usage: UsageEvidence[], options: GeminiClassificationOptions,
 ): Promise<StoreRole[]> {
@@ -147,7 +156,12 @@ export async function classifyStoresWithGemini(
 
   return ruleRoles.flatMap((role, index) => {
     const replacement = replacements.get(role.storeId);
-    if (!replacement) return [role];
-    return ruleRoles.findIndex((candidate) => candidate.storeId === role.storeId) === index ? replacement : [];
+    if (!replacement || !isWeak(role)) return [role];
+    const firstWeak = ruleRoles.findIndex((r) => r.storeId === role.storeId && isWeak(r));
+    if (firstWeak !== index) return [];
+    const kept = new Set(
+      ruleRoles.filter((r) => r.storeId === role.storeId && !isWeak(r)).map((r) => r.role),
+    );
+    return replacement.filter((r) => !kept.has(r.role));
   });
 }
