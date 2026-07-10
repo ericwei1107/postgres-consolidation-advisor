@@ -60,8 +60,8 @@ function commentEnd(text: string, i: number): number | null {
   return null;
 }
 
-/** Remove comments while preserving line numbers and string literals. */
-function withoutComments(text: string): string {
+/** Remove JS/Python comments while preserving line numbers and string literals. */
+export function withoutComments(text: string): string {
   let out = '';
   let quote: string | null = null;
   for (let i = 0; i < text.length; i++) {

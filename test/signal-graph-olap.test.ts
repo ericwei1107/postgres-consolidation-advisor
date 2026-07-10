@@ -51,6 +51,22 @@ describe('traversalShape (done-conditions for 4.3, §1.8 / [A6])', () => {
     const repo = tempRepo('pa-traversal-signal-');
     expect(traversalShape('neo4j:x', [], ctxFor(repo))).toBeNull();
   });
+
+  it('a /*...*/ block comment does not count as a variable-length marker', () => {
+    const repo = tempRepo('pa-traversal-signal-');
+    mkdirSync(join(repo, 'src'));
+    writeFileSync(
+      join(repo, 'src', 'graph.ts'),
+      ["/*...*/", "const q = 'MATCH (a)-[:KNOWS]->(b) RETURN b';"].join('\n'),
+    );
+    const usage = [
+      { storeId: 'neo4j:x', command: 'run', kind: 'call-site' as const, file: 'src/graph.ts', line: 2, excerpt: 'session.run(q)' },
+    ];
+    const signal = traversalShape('neo4j:x', usage, ctxFor(repo));
+    // Without comment stripping this reads 1 and wrongly fires the
+    // variable-length keep gate (graph.variable-length-or-gds-gate).
+    expect(signal!.value).toBe(0);
+  });
 });
 
 describe('olapPresenceSignals (done-conditions for 4.3, §1.7)', () => {
