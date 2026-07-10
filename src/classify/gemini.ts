@@ -66,7 +66,8 @@ function prompt(store: DetectedStore, usage: UsageEvidence[]): string {
   ].join('\n');
 }
 
-function isRateLimited(error: unknown): boolean {
+/** Shared with Stage 6.2's snippet tailoring — same model-fallback semantics. */
+export function isRateLimited(error: unknown): boolean {
   if (!error || typeof error !== 'object') return /\b429\b|RESOURCE_EXHAUSTED/i.test(String(error));
   const candidate = error as { status?: unknown; code?: unknown; message?: unknown };
   return candidate.status === 429
@@ -76,7 +77,8 @@ function isRateLimited(error: unknown): boolean {
     || /\b429\b|RESOURCE_EXHAUSTED/i.test(String(candidate.message ?? ''));
 }
 
-function configuredModels(models?: string[]): string[] {
+/** Shared with Stage 6.2's snippet tailoring — same POSTGRES_ADVISOR_GEMINI_MODELS override. */
+export function configuredModels(models?: string[]): string[] {
   const values = models ?? process.env.POSTGRES_ADVISOR_GEMINI_MODELS?.split(',');
   const normalized = (values ?? DEFAULT_GEMINI_MODELS).map((model) => model.trim()).filter(Boolean);
   return normalized.length > 0 ? [...new Set(normalized)] : [...DEFAULT_GEMINI_MODELS];
