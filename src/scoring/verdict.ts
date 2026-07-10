@@ -1,5 +1,6 @@
 import type { MappingOption, ScoringConfig, ThresholdBand, ThresholdRule } from '../rules.js';
 import { isSignalRange, type Signal, type SignalRange } from '../signals/types.js';
+import { renderRationale } from './rationale.js';
 import type {
   Confidence,
   Evidence,
@@ -94,6 +95,16 @@ const GATE_CHECKERS: Record<string, GateChecker> = {
     return count !== undefined && count === 0;
   },
   'geospatial.default-consolidate-gate': ({ storeRole }) => storeRole.evidence.length > 0,
+  // Change-stream usage is directly visible in already-harvested call-site
+  // evidence (mongo's `.watch(` pattern, PLAN.md 3.1) — no new signal needed.
+  // Sharding-config detection isn't implemented, so only half the gate's
+  // documented OR condition can fire; that's an honest partial, not a wrong
+  // answer (matches the "gates not listed here" limitation above).
+  'document.change-streams-sharding-gate': ({ storeRole }) => storeRole.evidence.some((e) => e.excerpt.includes('.watch(')),
+  'search.log-analytics-gate': ({ signals }) => {
+    const count = numericSignal(signals, 'log-analytics-signal-count');
+    return count !== undefined && count > 0;
+  },
 };
 
 /** Search's feature-signal-count and cache's command-mix-plain-kv-share, per PLAN.md §1.2/1.3's own fallback text. */
@@ -188,6 +199,64 @@ function bandContaining(value: number, bands: ThresholdBand[]): ThresholdBand | 
   return bands.find((b) => (b.min === undefined || value >= b.min) && (b.max === undefined || value < b.max));
 }
 
+/**
+ * Scales a [0,1] distance-from-boundary ratio by this threshold's relative
+ * weight (thresholds.yaml `weight`, default `scoring.default_weight`) — a
+ * heavier weight pushes fitScore further from the neutral midpoint (0.5), a
+ * lighter one pulls it back toward "borderline-flavored" even on a clear-cut
+ * decision. Every current threshold's weight equals default_weight, so this
+ * is a no-op until a future threshold is intentionally weighted differently.
+ */
+function weightedDistance(ratio: number, weight: number, defaultWeight: number): number {
+  if (defaultWeight <= 0) return ratio;
+  const scale = weight / defaultWeight;
+  return Math.max(0, Math.min(1, 0.5 + (ratio - 0.5) * scale));
+}
+
+/**
+ * A `low`-confidence role classification means the store might not even play
+ * this role — a verdict built on that footing can't honestly claim more
+ * certainty than the classification it rests on, regardless of how clean the
+ * threshold comparison looks. `medium`/`high` role confidence is left
+ * untouched: those already mean "we're sure this is the role," so the
+ * verdict's own signal observability is free to set confidence higher (e.g.
+ * a permanently-unresolvable supporting axis earning `high`, PLAN.md §1.2/1.3).
+ */
+function capByRoleConfidence(confidence: Confidence, roleConfidence: Confidence): Confidence {
+  return roleConfidence === 'low' ? 'low' : confidence;
+}
+
+/**
+ * PLAN.md §1.5: "the verdict computes the estimate (vectors × dims × 4 bytes
+ * + graph overhead) and states it" — `embedding-dims` (vectorScale, Stage
+ * 4.3) is the genuinely static half of this category's signal; this is the
+ * one place it's actually read. Uses the top of the vector-count range
+ * (the more conservative RAM estimate) and rounds up; "graph overhead" is
+ * named as an omission, not computed, since it depends on HNSW parameters
+ * this tool never observes.
+ */
+function vectorRamNote(signals: Signal[], countValue: number | SignalRange): string | undefined {
+  const dimsSignal = signals.find((s) => s.variable === 'embedding-dims');
+  if (!dimsSignal || isSignalRange(dimsSignal.value)) return undefined;
+  const dims = dimsSignal.value;
+  const count = isSignalRange(countValue) ? countValue.max : countValue;
+  const gb = (count * dims * 4) / 1e9;
+  return `HNSW RAM estimate: ~${fmt(Math.ceil(gb))} GB for ${fmt(count)} vectors x ${dims} dims x 4 bytes (graph overhead not included)`;
+}
+
+/**
+ * PLAN.md §1.7: dataset size is "rarely visible in-repo", so the verdict
+ * "keys off presence signals ... instead" — `dbt-model-count`
+ * (olapPresenceSignals, Stage 4.3) only ever matters when the real
+ * scanned-data-size-gb axis is unresolved, which is exactly the
+ * total-axis-absence path below.
+ */
+function olapPresenceNote(signals: Signal[]): string | undefined {
+  const presence = signals.find((s) => s.variable === 'dbt-model-count');
+  if (!presence || isSignalRange(presence.value)) return undefined;
+  return `Presence signal: ${fmt(presence.value)} dbt model(s) detected (a repo-size hint, not a measurement of scanned data volume)`;
+}
+
 /** storeRole.evidence and a signal's own evidence often overlap (both trace back to the same harvested call sites). */
 function dedupeEvidence(evidence: Evidence[]): Evidence[] {
   const seen = new Set<string>();
@@ -229,7 +298,7 @@ function baseVerdict(
     role: storeRole.role,
     decision,
     fitScore: clampScore(fitScore, scoring.baseScore),
-    confidence,
+    confidence: capByRoleConfidence(confidence, storeRole.confidence),
     thresholdComparisons: [comparison],
     rationale,
     postgresEquivalent: option?.label ?? 'no Postgres-native mapping defined for this category',
@@ -257,9 +326,19 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
       passed: decision === 'consolidate',
     };
     const evidence = dedupeEvidence([...storeRole.evidence, ...signals.flatMap((s) => s.evidence)]);
-    const rationale =
-      `${decision === 'keep' ? 'Keep' : 'Consolidate'} ${storeRole.storeId} — ${gate.description} ` +
-      `(${evidenceRef(evidence)}). ${gate.failureMode ?? ''}`.trim();
+    const migration = decision === 'consolidate' ? migrationEffort(evidence, option) : undefined;
+    const rationale = renderRationale({
+      decision,
+      storeId: storeRole.storeId,
+      observed: gate.gateSignals.join('; '),
+      verb: decision === 'keep' ? 'trips' : 'satisfies',
+      threshold: gate.description,
+      citation: gate.sources.length > 0 ? citation(gate) : '',
+      postgresEquivalent: option?.label ?? 'no Postgres-native mapping defined for this category',
+      failureMode: gate.failureMode,
+      evidenceRef: evidenceRef(evidence),
+      migrationEffort: migration,
+    });
     return baseVerdict(
       storeRole,
       decision,
@@ -268,7 +347,7 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
       comparison,
       option,
       rationale,
-      decision === 'consolidate' ? migrationEffort(evidence, option) : undefined,
+      migration,
       rules.scoring,
     );
   }
@@ -313,20 +392,32 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
       passed: decision === 'consolidate',
     };
     const evidence = dedupeEvidence([...storeRole.evidence, ...signal.evidence]);
-    const rationale =
-      `${decision === 'keep' ? 'Keep' : decision === 'borderline' ? 'Borderline for' : 'Consolidate'} ` +
-      `${storeRole.storeId} — ${threshold.variable} observed ${formatValue(signal.value, threshold.unit)} vs ` +
-      `${comparison.threshold} ${citation(threshold)}. ` +
-      `Evidence: ${evidenceRef(evidence)}. ${decision === 'keep' ? (threshold.failureMode ?? '') : ''}`.trim();
+    const migration = decision === 'consolidate' ? migrationEffort(evidence, option) : undefined;
+    const verb = decision === 'keep' ? 'exceeds' : decision === 'consolidate' ? 'is under' : 'sits inside';
+    const rationale = renderRationale({
+      decision,
+      storeId: storeRole.storeId,
+      observed: `${threshold.variable} observed ${formatValue(signal.value, threshold.unit)}`,
+      verb,
+      threshold: comparison.threshold,
+      citation: threshold.sources.length > 0 ? citation(threshold) : '',
+      postgresEquivalent: option?.label ?? 'no Postgres-native mapping defined for this category',
+      failureMode: threshold.failureMode,
+      evidenceRef: evidenceRef(evidence),
+      migrationEffort: migration,
+      note: threshold.variable === 'count-vectors' ? vectorRamNote(signals, signal.value) : undefined,
+    });
+    const rawRatio = bandDistanceRatio(hi, decision, band ?? loBand ?? hiBand);
+    const scaledRatio = weightedDistance(rawRatio, threshold.weight ?? rules.scoring.defaultWeight, rules.scoring.defaultWeight);
     return baseVerdict(
       storeRole,
       decision,
       confidence,
-      rules.scoring.baseScore * (1 - bandDistanceRatio(hi, decision, band ?? loBand ?? hiBand)),
+      rules.scoring.baseScore * (1 - scaledRatio),
       comparison,
       option,
       rationale,
-      decision === 'consolidate' ? migrationEffort(evidence, option) : undefined,
+      migration,
       rules.scoring,
     );
   }
@@ -349,11 +440,18 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
         passed: decision === 'consolidate',
       };
       const evidence = dedupeEvidence([...storeRole.evidence, ...signal.evidence]);
-      const rationale =
-        `${decision === 'consolidate' ? 'Consolidate' : 'Borderline for'} ${storeRole.storeId} — ` +
-        `${standIn?.variable ?? axis.standsInFor} isn't statically observable in this repo, so the verdict is ` +
-        `decided on the observable proxy instead: ${axis.variable} = ${formatValue(signal.value)}. ` +
-        `Evidence: ${evidenceRef(evidence)}.`;
+      const migration = decision === 'consolidate' ? migrationEffort(evidence, option) : undefined;
+      const rationale = renderRationale({
+        decision,
+        storeId: storeRole.storeId,
+        observed: `${axis.variable} = ${formatValue(signal.value)}`,
+        verb: 'stands in for',
+        threshold: `${standIn?.variable ?? axis.standsInFor} (not statically observable in this repo)`,
+        citation: '',
+        postgresEquivalent: option?.label ?? 'no Postgres-native mapping defined for this category',
+        evidenceRef: evidenceRef(evidence),
+        migrationEffort: migration,
+      });
       return baseVerdict(
         storeRole,
         decision,
@@ -362,7 +460,7 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
         comparison,
         option,
         rationale,
-        decision === 'consolidate' ? migrationEffort(evidence, option) : undefined,
+        migration,
         rules.scoring,
       );
     }
@@ -378,9 +476,18 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
     source: primarySource(primaryThreshold),
     passed: false,
   };
-  const rationale =
-    `Borderline for ${storeRole.storeId} — no static signal resolves ${comparison.variable} for this repo; ` +
-    `defaulting to ${option?.label ?? 'the category default'} pending a corpus/usage estimate or ` +
-    `\`postgres-advisor analyze --live\`. Evidence: ${evidenceRef(storeRole.evidence)}.`;
+  const rationale = renderRationale({
+    decision: 'borderline',
+    storeId: storeRole.storeId,
+    observed: `no static signal resolves ${comparison.variable}`,
+    verb: 'for',
+    threshold:
+      `this repo; defaulting to ${option?.label ?? 'the category default'} pending a corpus/usage estimate or ` +
+      '`postgres-advisor analyze --live`',
+    citation: '',
+    postgresEquivalent: option?.label ?? 'no Postgres-native mapping defined for this category',
+    evidenceRef: evidenceRef(storeRole.evidence),
+    note: storeRole.role === 'olap' ? olapPresenceNote(signals) : undefined,
+  });
   return baseVerdict(storeRole, 'borderline', 'low', rules.scoring.baseScore * 0.5, comparison, option, rationale, undefined, rules.scoring);
 }

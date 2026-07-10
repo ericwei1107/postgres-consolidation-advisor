@@ -26,6 +26,7 @@ products:
                          hget, hset, hgetall, hdel, lpush, rpush, lpop, rpop, lrange,
                          sadd, srem, smembers, sismember]
   memcached:
+    fixed_role: cache
     command_mix:
       plain_kv: [get, set, set_multi, delete, incr, decr]
       native_structure: []
@@ -39,6 +40,12 @@ products:
     fixed_role: queue
   rabbitmq:
     fixed_role: queue
+  influxdb:
+    fixed_role: timeseries
+  clickhouse:
+    fixed_role: olap
+  neo4j:
+    fixed_role: graph
   pinecone:
     fixed_role: vector
   weaviate:

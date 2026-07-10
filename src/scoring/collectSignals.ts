@@ -6,7 +6,7 @@ import { docSizeEstimate } from '../signals/docSizeEstimate.js';
 import { docUpdateShape } from '../signals/docUpdateShape.js';
 import { olapPresenceSignals } from '../signals/olapPresenceSignals.js';
 import { queueThroughput } from '../signals/queueThroughput.js';
-import { searchFeatures } from '../signals/searchFeatures.js';
+import { searchFeatures, searchLogAnalyticsSignal } from '../signals/searchFeatures.js';
 import type { Signal } from '../signals/types.js';
 import { traversalShape } from '../signals/traversalShape.js';
 import { vectorScale } from '../signals/vectorScale.js';
@@ -41,7 +41,8 @@ export async function collectSignals(
     }
     case 'search': {
       const features = searchFeatures(storeId, usage);
-      return features ? [features] : [];
+      const logAnalytics = searchLogAnalyticsSignal(storeId, usage, ctx);
+      return [features, logAnalytics].filter((s): s is Signal => s !== null);
     }
     case 'document': {
       const model = models.find((m) => m.product === store?.product);
