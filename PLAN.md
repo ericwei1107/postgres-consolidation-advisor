@@ -587,7 +587,7 @@ outputs, and done-condition.
   - Done-condition: yaml validates on load; a table-driven test asserts every
     StoreCategory (except relational/unknown) has ≥1 mapping with all fields.
 
-- [ ] **4.2 — Threshold rules file (§1 encoded as data)**
+- [x] **4.2 — Threshold rules file (§1 encoded as data)** ✅ 2026-07-09
   - Inputs/dependencies: 4.1 loader.
   - Expected output: `rules/thresholds.yaml` — every threshold from §1 verbatim:
     stable `id` (format `<category>.<variable-slug>`, e.g.

@@ -74,6 +74,87 @@ const CallPatternsFileSchema = z.object({
   ),
 });
 
+const SourceGradeSchema = z.enum(['vendor', 'independent', 'reproduced']);
+
+const ThresholdSourceSchema = z.object({
+  url: z.string(),
+  grade: SourceGradeSchema,
+  note: z.string().optional(),
+});
+
+const ThresholdBandSchema = z.object({
+  decision: z.enum(['consolidate', 'keep', 'borderline']),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  mapping_option: z.string().optional(),
+});
+
+const ObservabilitySchema = z.enum(['static', 'estimated', 'live-only']);
+const LiveSourceSchema = z.enum(['pg-stats', 'incumbent-only', 'none']);
+
+const ThresholdCommonSchema = {
+  id: z.string(),
+  category: StoreCategorySchema,
+  variable: z.string(),
+  description: z.string(),
+  observability: ObservabilitySchema,
+  live_source: LiveSourceSchema,
+  live_source_note: z.string().optional(),
+  unit: z.string().optional(),
+  weight: z.number().positive().optional(),
+  sources: z.array(ThresholdSourceSchema).default([]),
+  assumption_id: z.string().regex(/^A\d+$/).optional(),
+  failure_mode: z.string().optional(),
+  note: z.string().optional(),
+};
+
+const ThresholdBandsSchema = z.object({
+  ...ThresholdCommonSchema,
+  comparison: z.literal('bands'),
+  bands: z.array(ThresholdBandSchema).min(1),
+});
+
+const ThresholdGateSchema = z.object({
+  ...ThresholdCommonSchema,
+  comparison: z.literal('gate'),
+  gate_decision: z.enum(['consolidate', 'keep']),
+  gate_signals: z.array(z.string()).min(1),
+  mapping_option: z.string().optional(),
+});
+
+const ThresholdReferenceSchema = z.object({
+  ...ThresholdCommonSchema,
+  comparison: z.literal('reference'),
+  value: z.number(),
+});
+
+const ThresholdEntrySchema = z.discriminatedUnion('comparison', [
+  ThresholdBandsSchema,
+  ThresholdGateSchema,
+  ThresholdReferenceSchema,
+]);
+
+const ScoringConfigSchema = z.object({
+  base_score: z.number(),
+  qualitative_gate_max_fit_score: z.number(),
+  default_weight: z.number(),
+});
+
+const ConstantEntrySchema = z.object({
+  description: z.string(),
+  observability: ObservabilitySchema,
+  value: z.union([z.number(), z.object({ min: z.number(), max: z.number() })]),
+  unit: z.string(),
+  assumption_id: z.string().regex(/^A\d+$/).optional(),
+  sources: z.array(ThresholdSourceSchema).default([]),
+});
+
+const ThresholdsFileSchema = z.object({
+  scoring: ScoringConfigSchema,
+  constants: z.record(z.string(), ConstantEntrySchema),
+  thresholds: z.array(ThresholdEntrySchema).min(1),
+});
+
 const MappingOptionSchema = z.object({
   name: z.string(),
   label: z.string(),
@@ -398,6 +479,217 @@ export function loadMappings(): Map<StoreCategory, MappingOption[]> {
 /** Postgres-native options for one StoreCategory, in recommendation order. */
 export function mappingsFor(category: StoreCategory): MappingOption[] {
   return loadMappings().get(category) ?? [];
+}
+
+export interface ThresholdSource {
+  url: string;
+  grade: 'vendor' | 'independent' | 'reproduced';
+  note?: string;
+}
+
+export interface ThresholdBand {
+  decision: 'consolidate' | 'keep' | 'borderline';
+  min?: number;
+  max?: number;
+  mappingOption?: string;
+}
+
+interface ThresholdCommon {
+  id: string;
+  category: StoreCategory;
+  variable: string;
+  description: string;
+  observability: 'static' | 'estimated' | 'live-only';
+  liveSource: 'pg-stats' | 'incumbent-only' | 'none';
+  liveSourceNote?: string;
+  unit?: string;
+  weight?: number;
+  sources: ThresholdSource[];
+  assumptionId?: string;
+  failureMode?: string;
+  note?: string;
+}
+
+/** One threshold from PLAN.md §1, encoded as data — PLAN.md 4.2. */
+export type ThresholdRule =
+  | (ThresholdCommon & { comparison: 'bands'; bands: ThresholdBand[] })
+  | (ThresholdCommon & {
+      comparison: 'gate';
+      gateDecision: 'consolidate' | 'keep';
+      gateSignals: string[];
+      mappingOption?: string;
+    })
+  | (ThresholdCommon & { comparison: 'reference'; value: number });
+
+export interface ScoringConfig {
+  baseScore: number;
+  qualitativeGateMaxFitScore: number;
+  defaultWeight: number;
+}
+
+/** A general-estimation-model input (PLAN.md 4.2) — not itself a decision boundary. */
+export interface ConstantEntry {
+  description: string;
+  observability: 'static' | 'estimated' | 'live-only';
+  value: number | { min: number; max: number };
+  unit: string;
+  assumptionId?: string;
+  sources: ThresholdSource[];
+}
+
+function toThresholdSources(sources: z.infer<typeof ThresholdSourceSchema>[]): ThresholdSource[] {
+  return sources.map((s) => ({ url: s.url, grade: s.grade, ...(s.note !== undefined ? { note: s.note } : {}) }));
+}
+
+let cachedThresholdsFile: z.infer<typeof ThresholdsFileSchema> | undefined;
+
+function loadThresholdsFile(): z.infer<typeof ThresholdsFileSchema> {
+  if (cachedThresholdsFile) return cachedThresholdsFile;
+  const file = join(rulesDir(), 'thresholds.yaml');
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
+  } catch (e) {
+    throw new AdvisorError({
+      problem: 'rules/thresholds.yaml is not valid YAML',
+      cause: e instanceof Error ? e.message : String(e),
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  const result = ThresholdsFileSchema.safeParse(parsed);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new AdvisorError({
+      problem: `rules/thresholds.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
+      cause: issue?.message ?? 'schema validation failed',
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  cachedThresholdsFile = result.data;
+  return cachedThresholdsFile;
+}
+
+let cachedThresholds: Map<string, ThresholdRule> | undefined;
+
+/**
+ * Every threshold from PLAN.md §1, keyed by id. Ids are `<category>.<variable>`
+ * by construction (validated at load), so this map serves both the
+ * by-id and the (category, variable) lookup PLAN.md 4.2 requires.
+ */
+export function loadThresholds(): Map<string, ThresholdRule> {
+  if (cachedThresholds) return cachedThresholds;
+  const file = loadThresholdsFile();
+  const map = new Map<string, ThresholdRule>();
+  for (const raw of file.thresholds) {
+    const expectedId = `${raw.category}.${raw.variable}`;
+    if (raw.id !== expectedId) {
+      throw new AdvisorError({
+        problem: `rules/thresholds.yaml entry \`${raw.id}\` doesn't match its category+variable (\`${expectedId}\`)`,
+        cause: 'threshold ids must be exactly `<category>.<variable-slug>` so id and (category, variable) lookups agree',
+        fix: 'this is a packaging bug — please file an issue',
+        docsAnchor: 'troubleshooting',
+      });
+    }
+    if (map.has(raw.id)) {
+      throw new AdvisorError({
+        problem: `rules/thresholds.yaml has a duplicate threshold id \`${raw.id}\``,
+        fix: 'this is a packaging bug — please file an issue',
+        docsAnchor: 'troubleshooting',
+      });
+    }
+
+    const common: ThresholdCommon = {
+      id: raw.id,
+      category: raw.category,
+      variable: raw.variable,
+      description: raw.description,
+      observability: raw.observability,
+      liveSource: raw.live_source,
+      ...(raw.live_source_note !== undefined ? { liveSourceNote: raw.live_source_note } : {}),
+      ...(raw.unit !== undefined ? { unit: raw.unit } : {}),
+      ...(raw.weight !== undefined ? { weight: raw.weight } : {}),
+      sources: toThresholdSources(raw.sources),
+      ...(raw.assumption_id !== undefined ? { assumptionId: raw.assumption_id } : {}),
+      ...(raw.failure_mode !== undefined ? { failureMode: raw.failure_mode } : {}),
+      ...(raw.note !== undefined ? { note: raw.note } : {}),
+    };
+
+    let rule: ThresholdRule;
+    if (raw.comparison === 'bands') {
+      rule = {
+        ...common,
+        comparison: 'bands',
+        bands: raw.bands.map((b) => ({
+          decision: b.decision,
+          ...(b.min !== undefined ? { min: b.min } : {}),
+          ...(b.max !== undefined ? { max: b.max } : {}),
+          ...(b.mapping_option !== undefined ? { mappingOption: b.mapping_option } : {}),
+        })),
+      };
+    } else if (raw.comparison === 'gate') {
+      rule = {
+        ...common,
+        comparison: 'gate',
+        gateDecision: raw.gate_decision,
+        gateSignals: raw.gate_signals,
+        ...(raw.mapping_option !== undefined ? { mappingOption: raw.mapping_option } : {}),
+      };
+    } else {
+      rule = { ...common, comparison: 'reference', value: raw.value };
+    }
+    map.set(raw.id, rule);
+  }
+  cachedThresholds = map;
+  return cachedThresholds;
+}
+
+/** Lookup by stable id (e.g. `queue.est-peak-msgs-sec`), or undefined if unknown. */
+export function thresholdById(id: string): ThresholdRule | undefined {
+  return loadThresholds().get(id);
+}
+
+/** Lookup by (category, variable) — always equivalent to `thresholdById(\`${category}.${variable}\`)`. */
+export function thresholdByCategoryVariable(category: StoreCategory, variable: string): ThresholdRule | undefined {
+  return loadThresholds().get(`${category}.${variable}`);
+}
+
+/** All thresholds for one StoreCategory, in file order. */
+export function thresholdsByCategory(category: StoreCategory): ThresholdRule[] {
+  return [...loadThresholds().values()].filter((t) => t.category === category);
+}
+
+/** Verdict-engine constants (fitScore base/gate/weights) — PLAN.md 5.1's no-literals source. */
+export function loadScoringConfig(): ScoringConfig {
+  const file = loadThresholdsFile();
+  return {
+    baseScore: file.scoring.base_score,
+    qualitativeGateMaxFitScore: file.scoring.qualitative_gate_max_fit_score,
+    defaultWeight: file.scoring.default_weight,
+  };
+}
+
+let cachedConstants: Map<string, ConstantEntry> | undefined;
+
+/** General-estimation-model inputs (e.g. `general.est-peak-jobs-per-worker-slot`, [A1]). */
+export function loadConstants(): Map<string, ConstantEntry> {
+  if (cachedConstants) return cachedConstants;
+  const file = loadThresholdsFile();
+  cachedConstants = new Map(
+    Object.entries(file.constants).map(([id, c]) => [
+      id,
+      {
+        description: c.description,
+        observability: c.observability,
+        value: c.value,
+        unit: c.unit,
+        ...(c.assumption_id !== undefined ? { assumptionId: c.assumption_id } : {}),
+        sources: toThresholdSources(c.sources),
+      } satisfies ConstantEntry,
+    ]),
+  );
+  return cachedConstants;
 }
 
 /** Category seed for a product from the products table, or ['unknown']. */

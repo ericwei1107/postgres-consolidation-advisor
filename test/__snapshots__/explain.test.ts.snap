@@ -1,0 +1,119 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`explain (golden-file done-conditions for 4.2) > explain --list golden file: groups every id by category 1`] = `
+"# Threshold ids
+
+## cache
+- cache.est-ops-per-sec
+- cache.fan-out-calls-per-request
+- cache.redis-native-structures-gate
+- cache.sub-ms-slo-gate
+- cache.postgres-unlogged-read-throughput
+- cache.redis-read-throughput
+
+## queue
+- queue.est-peak-msgs-sec
+- queue.streaming-semantics-gate
+
+## search
+- search.corpus-size-docs
+- search.log-analytics-gate
+
+## document
+- document.avg-doc-size-bytes
+- document.field-level-update-gate
+- document.change-streams-sharding-gate
+
+## vector
+- vector.count-vectors
+- vector.multitenant-serverless-gate
+
+## timeseries
+- timeseries.ingest-rows-per-sec
+- timeseries.incumbent-dependency-gate
+
+## olap
+- olap.scanned-data-size-gb
+- olap.bi-concurrency-cross-org-gate
+
+## graph
+- graph.fixed-depth-traversal-gate
+- graph.cypher-shaped-no-algorithms-gate
+- graph.variable-length-or-gds-gate
+
+## geospatial
+- geospatial.default-consolidate-gate
+- geospatial.niche-nondb-features-gate
+
+details: \`postgres-advisor explain <id>\`
+"
+`;
+
+exports[`explain (golden-file done-conditions for 4.2) > explain of a gate threshold golden file: qualitative gate rendering 1`] = `
+"## queue.streaming-semantics-gate
+
+**Category:** queue
+**Variable:** streaming-semantics-gate
+**Description:** Streaming semantics — consumer groups with replay, offset management, Kafka Streams/ksqlDB/Connect, log-compaction/retention config — are a qualitative gate checked before any throughput number.
+**Observability:** static
+**Live source:** none — not resolvable by live mode
+
+**Comparison:** qualitative gate — fires \`keep\` when any signal is present
+- fromBeginning: true
+- seek(
+- multiple distinct groupIds consuming one topic
+- retention/compaction config present
+
+**Assumption:** none
+
+**Sources:**
+- https://www.morling.dev/blog/you-dont-need-kafka-just-use-postgres-considered-harmful/ (independent — mere groupId presence must NOT fire this gate — kafkajs requires one on every consumer)
+
+**Failure mode (keep):** replaying history or fanning one event out to N independent consumer groups needs a log, not a table — Postgres queues are the wrong shape regardless of throughput
+"
+`;
+
+exports[`explain (golden-file done-conditions for 4.2) > explain of a reference threshold golden file: value + unit, no bands/gate 1`] = `
+"## cache.postgres-unlogged-read-throughput
+
+**Category:** cache
+**Variable:** postgres-unlogged-read-throughput
+**Description:** Reference benchmark figure for Postgres UNLOGGED-table cache reads.
+**Observability:** static
+**Live source:** none — not resolvable by live mode
+
+**Comparison:** reference figure (not a decision boundary)
+- 16,000 ops/sec at ~0.7ms
+
+**Assumption:** none
+
+**Sources:**
+- https://dev.to/raphaeldelio/can-postgres-replace-redis-as-a-cache-2ne1 (independent)
+"
+`;
+
+exports[`explain (golden-file done-conditions for 4.2) > explain queue.est-peak-msgs-sec golden file: value, comparison, sources+grade, assumption, failure mode 1`] = `
+"## queue.est-peak-msgs-sec
+
+**Category:** queue
+**Variable:** est-peak-msgs-sec
+**Description:** Estimated peak messages/sec, from provisioned worker capacity (replicas x concurrency x general.est-peak-jobs-per-worker-slot).
+**Observability:** estimated
+**Live source:** incumbent-only — requires Redis INFO / consumer-lag / Kafka broker _stats — out of v1 scope; what to look at: consumer lag and messages/sec on the broker
+
+**Comparison:** range bands
+- **consolidate**: value < 1,000 → \`skip-locked\`
+- **borderline**: 1,000 ≤ value < 10,000
+- **keep**: value ≥ 10,000
+
+**Assumption:** none
+
+**Sources:**
+- https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525 (independent — SKIP LOCKED sustains 1k-10k jobs/sec)
+- https://gist.github.com/chanks/7585810 (independent — classic Que benchmark, ~10k jobs/sec)
+- https://legacy.tembo.io/blog/mq-stack-benchmarking/ (vendor — pgmq benchmarked >30k msgs/sec on 16 vCPU)
+- https://kmoppel.github.io/2025-11-13-postgres-kafka-and-event-queues/ (independent — MVCC/WAL bloat risk when consumer transactions run long)
+
+**Failure mode (keep):** consumer transactions at this rate cause MVCC bloat and WAL pile-up; Kafka's batching/sequential I/O is built for the range above ~10k msgs/sec
+"
+`;

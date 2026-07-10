@@ -1,0 +1,617 @@
+# Threshold rules — PLAN.md 4.2, encoding §1 verbatim as data.
+#
+# NO numeric literal related to these thresholds may appear in src/scoring/
+# TypeScript (enforced by test/no-scoring-literals.test.ts) — the verdict
+# engine reads everything from here at runtime.
+#
+# Field meanings on each entry under `thresholds:`:
+#   id             stable id, format <category>.<variable-slug>
+#   category       StoreCategory
+#   variable       short variable name (the id's slug half)
+#   description    what's being measured/compared
+#   observability  static | estimated | live-only — caps verdict confidence
+#   live_source    pg-stats | incumbent-only | none — which measurement can
+#                  actually resolve this variable in live mode (v1 only reads
+#                  the app's own Postgres, so incumbent-only variables are
+#                  honestly out of v1's live-mode reach)
+#   comparison     bands | gate | reference
+#     bands:       ordered list of { decision, min?, max?, mapping_option? }
+#                  min is inclusive, max is exclusive: min <= value < max
+#     gate:        { gate_decision, gate_signals: [...] } — a qualitative
+#                  signal that decides the verdict outright when present,
+#                  independent of any number
+#     reference:   { value, unit } — a cited fact used in rationale text,
+#                  not itself a decision boundary
+#   unit           unit of the numeric value(s), where applicable
+#   weight         relative weight in fitScore's distance calculation
+#                  (default 1 — set in `scoring.default_weight`)
+#   sources        [{ url, grade: vendor|independent|reproduced, note? }]
+#   assumption_id  A1-A9 where this number/line is flagged in PLAN.md's
+#                  "Open Questions / Assumptions Made", else omitted
+#   failure_mode   rendered in `keep` rationales (PLAN.md 5.2) — the specific
+#                  cost of forcing this workload into Postgres instead
+#   note           implementation note where PLAN.md's prose threshold needed
+#                  a concrete number it didn't itself state (e.g. "few TB")
+
+# Verdict-engine constants (PLAN.md 5.1) — live here, not in TypeScript, so
+# the no-scoring-literals grep test in src/scoring/ passes by construction.
+scoring:
+  base_score: 100
+  qualitative_gate_max_fit_score: 30
+  default_weight: 1
+
+# General-estimation-model inputs (PLAN.md "General estimation model" + [A1],
+# [A8]) — these feed signal extractors (Stage 4.3), they are not themselves
+# decision boundaries, so they live outside `thresholds:`.
+constants:
+  general.est-peak-jobs-per-worker-slot:
+    description: >-
+      Assumed throughput per concurrent worker slot, used to convert
+      provisioned worker capacity (replicas x concurrency) into an estimated
+      msgs/sec range: est_peak = replicas x concurrency x [min, max].
+    observability: estimated
+    value: { min: 0.1, max: 10 }
+    unit: jobs/sec per worker slot
+    assumption_id: A1
+    sources: []
+
+  document.avg-bytes-per-field:
+    description: >-
+      Heuristic average bytes per ORM/schema field, used only when no seed
+      data exists, to estimate which side of the ~2KB TOAST line a document
+      model likely falls on. Always reported as an estimate.
+    observability: estimated
+    value: 30
+    unit: bytes/field
+    assumption_id: A8
+    sources: []
+
+thresholds:
+  # ── queue (PLAN.md 1.1) ────────────────────────────────────────────────
+  - id: queue.est-peak-msgs-sec
+    category: queue
+    variable: est-peak-msgs-sec
+    description: >-
+      Estimated peak messages/sec, from provisioned worker capacity
+      (replicas x concurrency x general.est-peak-jobs-per-worker-slot).
+    observability: estimated
+    live_source: incumbent-only
+    live_source_note: >-
+      requires Redis INFO / consumer-lag / Kafka broker _stats — out of v1
+      scope; what to look at: consumer lag and messages/sec on the broker
+    comparison: bands
+    unit: msgs/sec
+    weight: 1
+    bands:
+      - decision: consolidate
+        max: 1000
+        mapping_option: skip-locked
+      - decision: borderline
+        min: 1000
+        max: 10000
+      - decision: keep
+        min: 10000
+    sources:
+      - url: https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525
+        grade: independent
+        note: SKIP LOCKED sustains 1k-10k jobs/sec
+      - url: https://gist.github.com/chanks/7585810
+        grade: independent
+        note: classic Que benchmark, ~10k jobs/sec
+      - url: https://legacy.tembo.io/blog/mq-stack-benchmarking/
+        grade: vendor
+        note: pgmq benchmarked >30k msgs/sec on 16 vCPU
+      - url: https://kmoppel.github.io/2025-11-13-postgres-kafka-and-event-queues/
+        grade: independent
+        note: MVCC/WAL bloat risk when consumer transactions run long
+    failure_mode: >-
+      consumer transactions at this rate cause MVCC bloat and WAL pile-up;
+      Kafka's batching/sequential I/O is built for the range above ~10k
+      msgs/sec
+
+  - id: queue.streaming-semantics-gate
+    category: queue
+    variable: streaming-semantics-gate
+    description: >-
+      Streaming semantics — consumer groups with replay, offset management,
+      Kafka Streams/ksqlDB/Connect, log-compaction/retention config — are a
+      qualitative gate checked before any throughput number.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - 'fromBeginning: true'
+      - 'seek('
+      - multiple distinct groupIds consuming one topic
+      - retention/compaction config present
+    sources:
+      - url: https://www.morling.dev/blog/you-dont-need-kafka-just-use-postgres-considered-harmful/
+        grade: independent
+        note: mere groupId presence must NOT fire this gate — kafkajs requires one on every consumer
+    failure_mode: >-
+      replaying history or fanning one event out to N independent consumer
+      groups needs a log, not a table — Postgres queues are the wrong shape
+      regardless of throughput
+
+  # ── cache (PLAN.md 1.2) ────────────────────────────────────────────────
+  - id: cache.est-ops-per-sec
+    category: cache
+    variable: est-ops-per-sec
+    description: >-
+      Estimated cache operations/sec. Only decisive for `consolidate` when
+      combined with a plain-KV command mix (see cache.redis-native-structures-gate).
+    observability: estimated
+    live_source: incumbent-only
+    live_source_note: >-
+      requires Redis INFO ops/sec or keyspace stats — out of v1 scope
+    comparison: bands
+    unit: ops/sec
+    weight: 1
+    bands:
+      - decision: consolidate
+        max: 5000
+        mapping_option: unlogged-table
+    assumption_id: A2
+    sources:
+      - url: https://dev.to/raphaeldelio/can-postgres-replace-redis-as-a-cache-2ne1
+        grade: independent
+        note: 5,000/sec line is ~1/3 of the measured 16k ops/sec Postgres unlogged-table read rate, on a single machine/config
+
+  - id: cache.fan-out-calls-per-request
+    category: cache
+    variable: fan-out-calls-per-request
+    description: >-
+      Count of distinct cache-call sites within a single request handler's
+      lexical span (same file, between route-handler anchors) — a crude
+      static stand-in for per-request fan-out, not call-graph reachability.
+    observability: estimated
+    live_source: none
+    comparison: bands
+    unit: calls/request
+    weight: 1
+    bands:
+      - decision: keep
+        min: 10
+    assumption_id: A9
+    sources: []
+    failure_mode: >-
+      high per-request cache fan-out multiplies the 0.7ms-vs-0.1ms Postgres/Redis
+      gap across every reachable call, which a single cache read would hide
+      inside a typical 50-200ms request
+
+  - id: cache.redis-native-structures-gate
+    category: cache
+    variable: redis-native-structures-gate
+    description: >-
+      Redis-native structures with no clean Postgres equivalent at the same
+      latency: sorted sets (leaderboards), pub/sub, streams, Lua scripting,
+      INCR-heavy rate limiting.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - 'ZADD/ZRANGE (leaderboards)'
+      - 'PUBLISH/SUBSCRIBE'
+      - 'XADD (streams)'
+      - 'EVAL (Lua)'
+      - 'INCR-heavy rate limiting'
+    sources: []
+    failure_mode: >-
+      each detected structure has no single-query Postgres equivalent at
+      Redis's latency; the verdict names the specific structure it found
+
+  - id: cache.sub-ms-slo-gate
+    category: cache
+    variable: sub-ms-slo-gate
+    description: >-
+      An explicit sub-millisecond latency SLO in config is a keep signal on
+      its own — mere hot-path presence is NOT, since 0.7ms vs 0.1ms is
+      invisible inside a typical 50-200ms request.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - explicit sub-ms latency SLO found in config
+    sources: []
+    failure_mode: >-
+      Postgres unlogged-table reads run ~0.7ms vs Redis's ~0.1ms; that gap is
+      only material against an explicit sub-ms budget
+
+  - id: cache.postgres-unlogged-read-throughput
+    category: cache
+    variable: postgres-unlogged-read-throughput
+    description: Reference benchmark figure for Postgres UNLOGGED-table cache reads.
+    observability: static
+    live_source: none
+    comparison: reference
+    value: 16000
+    unit: ops/sec at ~0.7ms
+    sources:
+      - url: https://dev.to/raphaeldelio/can-postgres-replace-redis-as-a-cache-2ne1
+        grade: independent
+
+  - id: cache.redis-read-throughput
+    category: cache
+    variable: redis-read-throughput
+    description: Reference benchmark figure for Redis cache reads, same study as cache.postgres-unlogged-read-throughput.
+    observability: static
+    live_source: none
+    comparison: reference
+    value: 890000
+    unit: ops/sec at ~0.1ms
+    sources:
+      - url: https://dev.to/raphaeldelio/can-postgres-replace-redis-as-a-cache-2ne1
+        grade: independent
+
+  # ── search (PLAN.md 1.3) ───────────────────────────────────────────────
+  - id: search.corpus-size-docs
+    category: search
+    variable: corpus-size-docs
+    description: >-
+      Corpus size estimate (row counts from seed files, migration comments,
+      fixture sizes — weak; live mode reads pg_class.reltuples).
+    observability: estimated
+    live_source: pg-stats
+    comparison: bands
+    unit: docs
+    weight: 1
+    bands:
+      - decision: consolidate
+        max: 5000000
+        mapping_option: tsvector-pg-trgm
+      - decision: consolidate
+        min: 5000000
+        max: 100000000
+        mapping_option: paradedb-pg-search
+      - decision: keep
+        min: 100000000
+    assumption_id: A3
+    sources:
+      - url: https://neon.com/blog/postgres-full-text-search-vs-elasticsearch
+        grade: vendor
+        note: 'native FTS "performs well over tables with a few million rows, degrades considerably over tens of millions"'
+      - url: https://www.paradedb.com/blog/elasticsearch-vs-postgres
+        grade: vendor
+        note: 'BM25 via Tantivy, "indexing and search times nearly identical to a dedicated Elasticsearch instance", 20x faster ranking than tsvector at 1M rows'
+      - url: https://www.tigerdata.com/blog/pg-textsearch-bm25-full-text-search-postgres
+        grade: vendor
+        note: BM25-in-Postgres benchmarked to 138M docs — the 100M keep line is conservative by comparison
+    failure_mode: >-
+      log analytics at scale (daily-index pattern) or heavy aggregations as
+      the primary workload need a purpose-built search engine regardless of
+      corpus size — see search.log-analytics-gate
+
+  - id: search.log-analytics-gate
+    category: search
+    variable: log-analytics-gate
+    description: >-
+      Log-analytics usage shape — daily indices, Logstash/Beats in compose,
+      heavy aggregations as the primary workload — is a qualitative keep
+      gate independent of corpus size.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - daily-index naming pattern
+      - Logstash/Beats present in compose
+      - aggregations/faceting as the primary workload
+    sources: []
+    failure_mode: >-
+      log-analytics access patterns (daily indices, heavy aggregation) are
+      what dedicated search/log engines are built for; tsvector/pg_trgm
+      targets keyword search with basic ranking, not this shape
+
+  # ── document (PLAN.md 1.4) ─────────────────────────────────────────────
+  - id: document.avg-doc-size-bytes
+    category: document
+    variable: avg-doc-size-bytes
+    description: >-
+      Average document size, inferred from Mongoose/schema field counts (via
+      document.avg-bytes-per-field when no seed data exists) or seed data
+      directly. The pivotal mechanism is TOAST: JSONB values over ~2KB are
+      compressed/chunked out-of-line, and updating one field rewrites and
+      re-TOASTs the whole document plus all its indexes (no HOT updates on
+      indexed JSONB).
+    observability: estimated
+    live_source: incumbent-only
+    live_source_note: >-
+      requires MongoDB collStats/document sampling — out of v1 scope; what
+      to look at: avgObjSize via db.collection.stats()
+    comparison: bands
+    unit: bytes
+    weight: 1
+    bands:
+      - decision: consolidate
+        max: 2048
+        mapping_option: jsonb
+    sources:
+      - url: https://dev.to/franckpachot/postgresql-jsonb-size-limits-to-prevent-toast-slicing-9e8
+        grade: independent
+      - url: https://dev.to/mongodb/no-hot-updates-on-jsonb-13k7
+        grade: independent
+        note: no HOT updates on indexed JSONB — the write-amplification mechanism
+
+  - id: document.field-level-update-gate
+    category: document
+    variable: field-level-update-gate
+    description: >-
+      Frequent field-level mutators ($inc counters, $push arrays) on
+      multi-KB documents trip the TOAST rewrite cost on every update.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - '$inc counters on documents estimated over ~2KB'
+      - '$push array updates on documents estimated over ~2KB'
+    sources: []
+    failure_mode: each $inc rewrites the full TOASTed document plus indexes
+
+  - id: document.change-streams-sharding-gate
+    category: document
+    variable: change-streams-sharding-gate
+    description: Change streams or sharding actively used is a qualitative keep gate.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - change streams in use
+      - sharding config present
+    sources: []
+    failure_mode: >-
+      change-stream consumers and shard-aware routing have no Postgres
+      equivalent that preserves the same operational model
+
+  # ── vector (PLAN.md 1.5) ───────────────────────────────────────────────
+  - id: vector.count-vectors
+    category: vector
+    variable: count-vectors
+    description: >-
+      Estimated vector count (what gets embedded — per-row? per-chunk?
+      corpus hints). RAM estimate for HNSW is vectors x dims x 4 bytes plus
+      graph overhead, computed and stated alongside this comparison.
+    observability: estimated
+    live_source: pg-stats
+    comparison: bands
+    unit: vectors
+    weight: 1
+    bands:
+      - decision: consolidate
+        max: 5000000
+        mapping_option: pgvector
+      - decision: consolidate
+        min: 5000000
+        max: 50000000
+        mapping_option: pgvectorscale
+      - decision: keep
+        min: 100000000
+    assumption_id: A4
+    sources:
+      - url: https://supabase.com/blog/pgvector-vs-pinecone
+        grade: vendor
+        note: pgvector HNSW matches or beats dedicated engines at ~1M scale
+      - url: https://www.tigerdata.com/blog/pgvector-vs-pinecone
+        grade: vendor
+        note: pgvectorscale (StreamingDiskANN) benchmarked at 50M vectors / 99% recall, 471 QPS, 28x lower p95 and 16x higher throughput than Pinecone s1
+    failure_mode: >-
+      multi-tenant serverless isolation needs — see
+      vector.multitenant-serverless-gate — matter more than raw count once a
+      deployment is past dedicated-engine scale
+
+  - id: vector.multitenant-serverless-gate
+    category: vector
+    variable: multitenant-serverless-gate
+    description: Multi-tenant serverless isolation being the actual point is a qualitative keep gate.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - multi-tenant serverless isolation is a stated requirement
+    sources: []
+    failure_mode: >-
+      per-tenant serverless isolation at the vector-DB layer has no
+      equivalent primitive in a shared Postgres instance
+
+  # ── timeseries (PLAN.md 1.6) ───────────────────────────────────────────
+  - id: timeseries.ingest-rows-per-sec
+    category: timeseries
+    variable: ingest-rows-per-sec
+    description: >-
+      Ingest rate = device/source count x sampling interval, both often in
+      config. This category defaults to consolidate; keep requires ingest
+      above the line on a single node.
+    observability: estimated
+    live_source: pg-stats
+    live_source_note: pg_stat_user_tables.n_tup_ins deltas
+    comparison: bands
+    unit: rows/sec
+    weight: 1
+    bands:
+      - decision: consolidate
+        max: 500000
+        mapping_option: timescaledb
+      - decision: keep
+        min: 500000
+    assumption_id: A5
+    sources:
+      - url: https://medium.com/timescale/timescaledb-vs-influxdb-purpose-built-differently-for-time-series-data-36489299877
+        grade: vendor
+        note: at 10M-device cardinality, TimescaleDB out-ingested InfluxDB 50k vs 38k rows/sec — the specialized store isn't even faster in the regime that matters
+    failure_mode: >-
+      sustained single-node ingest above ~500k rows/sec, or existing
+      InfluxDB-3.0-specific features/Grafana-Flux dashboards, push the
+      migration-cost balance toward keeping InfluxDB — see
+      timeseries.incumbent-dependency-gate
+
+  - id: timeseries.incumbent-dependency-gate
+    category: timeseries
+    variable: incumbent-dependency-gate
+    description: >-
+      A migration-cost qualitative gate: the deployment already depends on
+      InfluxDB-3.0-specific features or existing Grafana-Flux dashboards.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - InfluxDB 3.0-specific features in use
+      - existing Grafana-Flux dashboards depended on
+    sources: []
+    failure_mode: >-
+      rebuilding dashboards and re-deriving Flux-specific logic is a real
+      migration cost independent of the ingest-rate math
+
+  # ── olap (PLAN.md 1.7) ─────────────────────────────────────────────────
+  - id: olap.scanned-data-size-gb
+    category: olap
+    variable: scanned-data-size-gb
+    description: >-
+      Regularly-scanned analytical dataset size. Rarely visible in-repo;
+      verdict often keys off presence signals (dbt project size,
+      Fivetran/Airbyte in compose) instead, confidence low.
+    observability: estimated
+    live_source: incumbent-only
+    live_source_note: >-
+      requires the warehouse's own metadata (table/partition sizes) — out of
+      v1 scope, and only if the user allows querying it
+    comparison: bands
+    unit: GB
+    weight: 1
+    note: >-
+      PLAN.md 1.7 states the keep line as "> few TB" without a number; this
+      threshold interprets "few TB" as 3072 GB (3 TiB) for banding purposes
+      only — treat the borderline/keep boundary as approximate, not cited.
+    bands:
+      - decision: consolidate
+        max: 500
+        mapping_option: pg-analytics
+      - decision: borderline
+        min: 500
+        max: 3072
+      - decision: keep
+        min: 3072
+    sources:
+      - url: https://dataskew.io/blog/metabase-duckdb-local-analytics/
+        grade: independent
+        note: sub-second on modest hardware to ~100GB; "above ~500GB a real warehouse pays off"
+      - url: https://www.definite.app/blog/duckdb-ducklake-business-case
+        grade: vendor
+      - url: https://datamonkeysite.com/2025/10/19/running-duckdb-at-10-tb-scale/
+        grade: independent
+        note: DuckDB production-proven into the terabytes single-node
+    failure_mode: >-
+      high concurrent BI usage or cross-org data sharing push toward a
+      warehouse regardless of scanned size — see
+      olap.bi-concurrency-cross-org-gate
+
+  - id: olap.bi-concurrency-cross-org-gate
+    category: olap
+    variable: bi-concurrency-cross-org-gate
+    description: High concurrent BI usage or cross-org data sharing is a qualitative keep gate.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - high concurrent BI-tool usage detected
+      - cross-org data sharing detected
+    sources: []
+    failure_mode: >-
+      concurrency and governance at that scale are what a warehouse is
+      built for; DuckDB/pg_analytics target single-node analytical queries
+
+  # ── graph (PLAN.md 1.8) ────────────────────────────────────────────────
+  # No reliable public benchmark grounds a numeric line for graph — the
+  # category is explicitly qualitative [A6]; all three entries are gates.
+  - id: graph.fixed-depth-traversal-gate
+    category: graph
+    variable: fixed-depth-traversal-gate
+    description: Fixed-depth (<=3-hop) traversal patterns consolidate to recursive CTEs.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: consolidate
+    gate_signals:
+      - 'fixed-depth pattern, e.g. (a)-[:X]->(b)-[:Y]->(c), <=3 hops'
+    mapping_option: recursive-ctes
+    assumption_id: A6
+    sources: []
+
+  - id: graph.cypher-shaped-no-algorithms-gate
+    category: graph
+    variable: cypher-shaped-no-algorithms-gate
+    description: >-
+      Cypher-shaped workloads without graph-algorithm library usage
+      consolidate to Apache AGE (openCypher in Postgres).
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: consolidate
+    gate_signals:
+      - Cypher-shaped queries present
+      - no graph-algorithm library (PageRank, community detection, ...) in use
+    mapping_option: apache-age
+    assumption_id: A6
+    sources: []
+    note: AGE's maturity risk is disclosed alongside this verdict — see rules/mappings.yaml graph.apache-age.
+
+  - id: graph.variable-length-or-gds-gate
+    category: graph
+    variable: variable-length-or-gds-gate
+    description: >-
+      Variable-length deep traversal as the core access pattern, or
+      GDS-style algorithms, is a keep gate.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - 'variable-length traversal, e.g. [:X*1..]'
+      - 'graph-algorithm library usage (PageRank, community detection, ...)'
+    assumption_id: A6
+    sources: []
+    failure_mode: >-
+      variable-length traversal and GDS-style algorithms have no
+      constant-shape SQL translation; recursive CTEs need a depth cap that
+      this access pattern doesn't have
+
+  # ── geospatial (PLAN.md 1.9) ───────────────────────────────────────────
+  - id: geospatial.default-consolidate-gate
+    category: geospatial
+    variable: default-consolidate-gate
+    description: >-
+      Effectively no threshold — PostGIS is the reference implementation of
+      SQL geospatial and typically more capable than bolt-on GIS layers, so
+      any detected GIS operation consolidates by default.
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: consolidate
+    gate_signals:
+      - any GIS operation detected in code
+    mapping_option: postgis
+    assumption_id: A7
+    sources: []
+
+  - id: geospatial.niche-nondb-features-gate
+    category: geospatial
+    variable: niche-nondb-features-gate
+    description: >-
+      Keep is reserved for niche server-product features that aren't
+      database features at all (e.g. tile-rendering pipelines).
+    observability: static
+    live_source: none
+    comparison: gate
+    gate_decision: keep
+    gate_signals:
+      - tile-rendering pipeline or similar non-DB GIS server feature detected
+    sources: []
+    failure_mode: >-
+      tile rendering and similar server-product features sit outside what
+      any SQL geospatial extension does, PostGIS included

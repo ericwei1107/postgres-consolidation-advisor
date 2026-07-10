@@ -20,6 +20,7 @@ import { join, resolve } from 'node:path';
 import { Command, Option } from 'commander';
 import { analyze } from './analyze.js';
 import { loadConfig } from './config.js';
+import { explainThreshold, listThresholds } from './explain.js';
 import { AdvisorError, EXIT_ERROR, EXIT_FAIL_ON, EXIT_OK } from './errors.js';
 import type { AnalysisResult } from './types.js';
 
@@ -194,16 +195,31 @@ program
   .command('explain [threshold-id]')
   .description('show a threshold: value, comparison, source + grade, assumption status')
   .option('--list', 'list all threshold ids by category')
-  .action(() => {
-    // Stub until rules/thresholds.yaml lands (PLAN.md 4.2).
-    const err = new AdvisorError({
-      problem: '`explain` is not available in this build',
-      cause: 'threshold rules ship in Stage 4.2',
-      fix: 'see PLAN.md §1 for the full threshold methodology in the meantime',
-      docsAnchor: 'methodology',
-    });
-    console.error(err.format());
-    process.exit(EXIT_ERROR);
+  .option('--path <dir>', 'repo directory to read .postgres-advisor.yaml threshold_overrides from', '.')
+  .action((thresholdId: string | undefined, opts: { list?: boolean; path: string }) => {
+    try {
+      if (!thresholdId && !opts.list) {
+        throw new AdvisorError({
+          problem: 'explain needs a threshold id',
+          fix: 'run `postgres-advisor explain <threshold-id>`, or `postgres-advisor explain --list` to see every id',
+          docsAnchor: 'methodology',
+        });
+      }
+
+      if (opts.list) {
+        process.stdout.write(listThresholds());
+        process.exit(EXIT_OK);
+      }
+
+      const repoPath = resolve(opts.path);
+      const config = existsSync(repoPath) ? loadConfig(repoPath) : loadConfig(process.cwd());
+      process.stdout.write(explainThreshold(thresholdId as string, config.threshold_overrides));
+      process.exit(EXIT_OK);
+    } catch (e) {
+      const err = e instanceof AdvisorError ? e : new AdvisorError({ problem: e instanceof Error ? e.message : String(e) });
+      console.error(err.format());
+      process.exit(EXIT_ERROR);
+    }
   });
 
 program.parseAsync(process.argv).catch((e: unknown) => {

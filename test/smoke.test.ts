@@ -92,10 +92,10 @@ describe('cli smoke (done-conditions for 1.1)', () => {
     expect(stderr).toContain('fix:');
   });
 
-  it('explain is a stub that exits 2 and names Stage 4.2', () => {
-    const { code, stderr } = run(['explain', 'queue.est-peak-msgs-sec']);
-    expect(code).toBe(2);
-    expect(stderr).toContain('4.2');
+  it('explain <threshold-id> exits 0 (full coverage: test/cli-explain.test.ts, Stage 4.2)', () => {
+    const { code, stdout } = run(['explain', 'queue.est-peak-msgs-sec']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('queue.est-peak-msgs-sec');
   });
 
   it('invalid .postgres-advisor.yaml hard-fails with named field and shape example', () => {
