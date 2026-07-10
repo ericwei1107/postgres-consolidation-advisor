@@ -36,6 +36,8 @@ export { computeVerdict, computeVerdicts, buildVerdictRules, collectSignals, typ
 export { renderRationale, type RationaleContext } from './scoring/rationale.js';
 export { renderTemplate, renderTemplateFile, templatesDir, TEMPLATE_FILES, type TemplateId } from './snippets/templates.js';
 export { validateSql } from './snippets/validateSql.js';
+export { astShapeEqual } from './snippets/astShape.js';
+export { tailorSnippet, type TailorOptions, type TailorResult } from './snippets/tailor.js';
 export type {
   CacheUnloggedTableContext,
   QueueContext,
