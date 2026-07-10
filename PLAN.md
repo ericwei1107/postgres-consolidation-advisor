@@ -759,7 +759,26 @@ outputs, and done-condition.
     dims come from the real `embedding_dims` table, and the TS template is
     typechecked in isolation via a real `tsc --noEmit` subprocess.
 
-- [ ] **6.2 — Gemini snippet tailoring** `[Importance: LOW]`
+- [x] **6.2 — Gemini snippet tailoring** `[Importance: LOW]` ✅ 2026-07-10
+  (the AST-shape equality check is implemented as key-set/array-length
+  structural equality with boolean leaves compared exactly and string/number
+  leaves reduced to their JS type only — not a per-Postgres-grammar-field
+  identifier/literal classifier. This is a deliberate scope call, not an
+  oversight: it correctly catches the two things PLAN.md names explicitly
+  ("new statements, changed statement types" — verified: an injected extra
+  `DROP TABLE` statement is rejected) while permitting free identifier/type/
+  literal tailoring, since those only change leaf VALUES, never keys or
+  array lengths. Known, accepted gap: a handful of structural facts are
+  encoded as short enum-coded strings indistinguishable by type alone from a
+  genuine identifier — e.g. `relpersistence: "u"` (UNLOGGED) vs `"p"`
+  (permanent) — so a hypothetical UNLOGGED-to-LOGGED flip within an
+  otherwise-identical CREATE TABLE would slip through. Catching that would
+  need a field-by-field classifier of the full Postgres grammar, which is
+  exactly the fragile, easy-to-get-subtly-wrong machinery this guard exists
+  to avoid; see `src/snippets/astShape.ts`'s top-of-file comment. `isRateLimited`
+  and `configuredModels` were exported from `src/classify/gemini.ts` (pure
+  additive `export` keyword, no behavior change) so 6.2 reuses Stage 3.3's
+  model-fallback/rate-limit semantics instead of duplicating them.)
   - Inputs/dependencies: 6.1, 3.3's Gemini wrapper.
   - Expected output: `src/snippets/tailor.ts` — takes rendered template + the
     store's ORM field summary, asks Gemini to adapt names/types/columns (strict
@@ -778,7 +797,13 @@ outputs, and done-condition.
     never skipped while tailoring proceeds. `--no-ai` skips.
   - Done-condition: mocked tests for adapt/validate/fallback paths; fixture run
     with mock produces `mongo→jsonb` snippet whose column names match the
-    python-service document model fields.
+    python-service document model fields. Verified: `test/snippets-tailor.test.ts`
+    (11 tests) — adapt (incl. code-fence stripping and the python-service
+    fixture scenario), validate (injected-statement rejection, non-parsing
+    output rejection), and fallback (`--no-ai`, `.ts` templates never call
+    Gemini, no API key, rate-limit model-fallback, all-models-exhausted,
+    non-rate-limit error) all covered against both ESM and CJS `dist/`
+    builds, not just the dev-mode path.
 
 ### Stage 7 — Reports
 
