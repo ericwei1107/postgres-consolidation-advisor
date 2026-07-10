@@ -74,6 +74,23 @@ const CallPatternsFileSchema = z.object({
   ),
 });
 
+const MappingOptionSchema = z.object({
+  name: z.string(),
+  label: z.string(),
+  extension_required: z.object({
+    required: z.boolean(),
+    name: z.string().nullable(),
+  }),
+  maturity: z.string(),
+  operational_cost: z.string(),
+  data_migration: z.enum(['copy', 'dual-write', 'none']),
+  rollback: z.string(),
+});
+
+const MappingsFileSchema = z.object({
+  mappings: z.record(z.string(), z.array(MappingOptionSchema).min(1)),
+});
+
 const RolesFileSchema = z.object({
   products: z.record(
     z.string(),
@@ -123,6 +140,30 @@ export interface RoleRule {
   cache?: { commands: string[]; minShare: number; mixedConfidence: 'high' | 'medium' | 'low' };
   queue?: { libraries: string[]; commands: string[] };
 }
+
+/** A Postgres-native option for consolidating one StoreCategory — PLAN.md 4.1. */
+export interface MappingOption {
+  name: string;
+  label: string;
+  extensionRequired: { required: boolean; name: string | null };
+  maturity: string;
+  operationalCost: string;
+  dataMigration: 'copy' | 'dual-write' | 'none';
+  rollback: string;
+}
+
+/** Every StoreCategory that gets a Postgres-consolidation mapping (all but relational/unknown). */
+export const MAPPED_CATEGORIES: StoreCategory[] = [
+  'cache',
+  'queue',
+  'search',
+  'document',
+  'vector',
+  'timeseries',
+  'olap',
+  'graph',
+  'geospatial',
+];
 
 let cachedFile: ProductsFile | undefined;
 
@@ -297,6 +338,66 @@ export function loadRoleRules(): Map<string, RoleRule> {
     ],
   ));
   return cachedRoles;
+}
+
+let cachedMappings: Map<StoreCategory, MappingOption[]> | undefined;
+
+/** Ordered Postgres-native migration options per StoreCategory — PLAN.md 4.1. */
+export function loadMappings(): Map<StoreCategory, MappingOption[]> {
+  if (cachedMappings) return cachedMappings;
+  const file = join(rulesDir(), 'mappings.yaml');
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
+  } catch (e) {
+    throw new AdvisorError({
+      problem: 'rules/mappings.yaml is not valid YAML',
+      cause: e instanceof Error ? e.message : String(e),
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  const result = MappingsFileSchema.safeParse(parsed);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new AdvisorError({
+      problem: `rules/mappings.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
+      cause: issue?.message ?? 'schema validation failed',
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  const map = new Map<StoreCategory, MappingOption[]>();
+  for (const [category, options] of Object.entries(result.data.mappings)) {
+    const categoryResult = StoreCategorySchema.safeParse(category);
+    if (!categoryResult.success) {
+      throw new AdvisorError({
+        problem: `rules/mappings.yaml has an unknown category \`${category}\``,
+        cause: 'every top-level key under `mappings:` must be a valid StoreCategory',
+        fix: 'this is a packaging bug — please file an issue',
+        docsAnchor: 'troubleshooting',
+      });
+    }
+    map.set(
+      categoryResult.data,
+      options.map((o) => ({
+        name: o.name,
+        label: o.label,
+        extensionRequired: { required: o.extension_required.required, name: o.extension_required.name },
+        maturity: o.maturity,
+        operationalCost: o.operational_cost,
+        dataMigration: o.data_migration,
+        rollback: o.rollback,
+      })),
+    );
+  }
+  cachedMappings = map;
+  return cachedMappings;
+}
+
+/** Postgres-native options for one StoreCategory, in recommendation order. */
+export function mappingsFor(category: StoreCategory): MappingOption[] {
+  return loadMappings().get(category) ?? [];
 }
 
 /** Category seed for a product from the products table, or ['unknown']. */

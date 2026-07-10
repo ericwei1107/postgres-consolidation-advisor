@@ -1,0 +1,307 @@
+# Postgres-equivalent mapping table — PLAN.md 4.1.
+#
+# For each StoreCategory (except `relational`/`unknown`, which have no
+# migration target because they already are/aren't a store), an ORDERED list
+# of Postgres-native options — first option is the default recommendation,
+# later options are escalations for harder requirements within the same
+# category (e.g. cache: plain UNLOGGED table, then materialized views for a
+# read-heavy precomputed-aggregate shape).
+#
+# Field meanings:
+#   name                 stable id, matched against template file stems in
+#                        Stage 6 (e.g. `redis-cache -> unlogged-table.sql.hbs`)
+#   label                human-readable name shown in reports
+#   extension_required   { required, name } — name is null for core-SQL
+#                        options that need no CREATE EXTENSION
+#   maturity             how battle-tested the option is, and why that matters
+#                        for a "keep it operationally boring" pitch
+#   operational_cost     what running this actually costs (background
+#                        workers, index maintenance, separate processes)
+#   data_migration       copy | dual-write | none — feeds
+#                        Verdict.migrationEffort.dataMigration
+#   rollback             one-line rollback path if the cutover goes wrong
+
+mappings:
+  cache:
+    - name: unlogged-table
+      label: 'UNLOGGED table + pg_cron TTL sweep'
+      extension_required: { required: true, name: pg_cron }
+      maturity: >-
+        pg_cron is Citus/Microsoft-maintained, ships in every major managed
+        Postgres (RDS, Supabase, Neon, Cloud SQL) and has run production cron
+        jobs inside Postgres since 2016.
+      operational_cost: >-
+        Needs shared_preload_libraries=pg_cron (a restart to enable) and a
+        background worker; shares the primary's CPU/IO budget instead of a
+        separate cache tier. Postgres has no native TTL, so expiry is a
+        polling sweep, not push-based like Redis EXPIRE.
+      data_migration: none
+      rollback: >-
+        Cache contents are derived/ephemeral — no rollback needed, point
+        reads back at Redis and let the UNLOGGED table go cold.
+
+    - name: materialized-views
+      label: 'Materialized views for precomputed aggregates'
+      extension_required: { required: false, name: null }
+      maturity: >-
+        Core Postgres since 9.3; no third-party dependency at all.
+      operational_cost: >-
+        REFRESH is manual or cron-scheduled, not automatic on underlying
+        writes; REFRESH ... CONCURRENTLY (needed to avoid blocking readers)
+        requires a unique index on the view.
+      data_migration: none
+      rollback: >-
+        Drop the view and resume reading from the origin tables directly —
+        no data was ever exclusively owned by the view.
+
+  queue:
+    - name: pgmq
+      label: 'pgmq extension'
+      extension_required: { required: true, name: pgmq }
+      maturity: >-
+        Tembo-authored, actively maintained, but pre-1.0 — young relative to
+        the message brokers it replaces; track its release notes before
+        upgrading Postgres major versions.
+      operational_cost: >-
+        Queue tables see the same high-churn INSERT/DELETE pattern as any
+        job queue and need autovacuum tuned aggressively (or unlogged
+        queues) to avoid bloat at sustained throughput.
+      data_migration: dual-write
+      rollback: >-
+        Keep the old broker draining in parallel until pgmq's queue is
+        empty of failures, then cut producers over; revert by re-pointing
+        producers at the old broker.
+
+    - name: skip-locked
+      label: 'Plain SQL, FOR UPDATE SKIP LOCKED'
+      extension_required: { required: false, name: null }
+      maturity: >-
+        Core SQL since Postgres 9.5; the pattern behind the Que gem and
+        countless hand-rolled job queues for a decade.
+      operational_cost: >-
+        No extra service or extension, but consumer transactions must stay
+        short — long-held locks or long transactions cause MVCC/WAL bloat
+        at the throughput this pattern is chosen for.
+      data_migration: dual-write
+      rollback: >-
+        Same dual-write cutover as pgmq: drain the old broker before
+        retiring it, revert by re-pointing producers if needed.
+
+    - name: pgflow
+      label: 'pgflow (Postgres-native workflow/DAG engine)'
+      extension_required: { required: true, name: pgflow }
+      maturity: >-
+        Young, small-community project — appropriate only when the queue
+        is really a workflow/DAG orchestrator, not a plain job queue.
+      operational_cost: >-
+        Adds a background execution model on top of Postgres; upgrade path
+        and long-term maintenance are less proven than pgmq or SKIP LOCKED.
+      data_migration: dual-write
+      rollback: >-
+        Same dual-write cutover pattern as pgmq; revert by re-pointing the
+        workflow trigger at the previous orchestrator.
+
+  search:
+    - name: tsvector-pg-trgm
+      label: 'tsvector + pg_trgm'
+      extension_required: { required: true, name: pg_trgm }
+      maturity: >-
+        tsvector/ts_rank are core Postgres; pg_trgm is a contrib module
+        that has shipped with Postgres for over a decade.
+      operational_cost: >-
+        GIN index maintenance on write-heavy tables; top-N ranked queries
+        must score every match (no approximate top-k like a dedicated
+        search engine), which is the main scaling ceiling.
+      data_migration: copy
+      rollback: >-
+        The search index is derived data — drop the generated column/index
+        and re-point queries at the old search cluster, which stays
+        available (read-only) until the cutover is verified.
+
+    - name: paradedb-pg-search
+      label: 'ParadeDB pg_search (BM25 via Tantivy)'
+      extension_required: { required: true, name: pg_search }
+      maturity: >-
+        Newer (2023+), VC-backed, pre-1.0 — flagged explicitly as an
+        extension adoption, not vanilla Postgres, in every verdict that
+        recommends it.
+      operational_cost: >-
+        Tantivy indexes add their own storage and build time on top of the
+        base table; the extension's release cadence is tied to one vendor.
+      data_migration: copy
+      rollback: >-
+        Same as tsvector: derived data, drop the index, re-point queries at
+        the still-running search cluster until parity is verified.
+
+  document:
+    - name: jsonb
+      label: 'JSONB column + GIN index'
+      extension_required: { required: false, name: null }
+      maturity: >-
+        JSONB is core Postgres since 9.4; extremely mature, but the TOAST
+        rewrite-on-any-field-update mechanic is a real limitation for
+        multi-KB documents under frequent partial updates.
+      operational_cost: >-
+        None beyond ordinary table/index maintenance — but any field-level
+        update on a TOASTed (>~2KB) document rewrites the whole document
+        plus all its indexes, so hot-field access patterns need columns
+        promoted out of the blob.
+      data_migration: copy
+      rollback: >-
+        Keep the source document store read-only for one release cycle;
+        restore from its native export/backup if the JSONB cutover surfaces
+        data issues.
+
+    - name: ferretdb
+      label: 'FerretDB (MongoDB wire-protocol proxy over Postgres)'
+      extension_required: { required: true, name: 'ferretdb (separate proxy service, not a CREATE EXTENSION)' }
+      maturity: >-
+        Young (2021+), active development; MongoDB API surface coverage is
+        incomplete — verify the app's actual driver calls against FerretDB's
+        supported-commands list before committing to this path.
+      operational_cost: >-
+        Introduces a proxy process to run and monitor in addition to
+        Postgres itself — not a zero-ops swap even though the app keeps
+        speaking the Mongo wire protocol.
+      data_migration: copy
+      rollback: >-
+        Same as jsonb: keep the source Mongo deployment read-only and
+        restorable until the FerretDB cutover is verified in production.
+
+  vector:
+    - name: pgvector
+      label: 'pgvector (HNSW index)'
+      extension_required: { required: true, name: vector }
+      maturity: >-
+        Widely adopted, effectively the default choice for vectors in
+        Postgres; matches or beats dedicated engines at ~1M-vector scale.
+      operational_cost: >-
+        HNSW wants its index resident in RAM — memory footprint grows with
+        vectors x dims and must be sized up front, unlike a managed vector
+        DB's opaque capacity planning.
+      data_migration: copy
+      rollback: >-
+        Keep the source vector DB's index live and unqueried for one
+        release; re-point the query path back if recall or latency
+        regresses.
+
+    - name: pgvectorscale
+      label: 'pgvectorscale (StreamingDiskANN)'
+      extension_required: { required: true, name: vectorscale }
+      maturity: >-
+        Newer than pgvector core (2024, Tiger Data/Timescale), benchmarked
+        to 50M vectors but with a shorter production track record.
+      operational_cost: >-
+        Disk-based index (StreamingDiskANN) trades the RAM-resident
+        requirement of HNSW for its own index-management overhead at scale.
+      data_migration: copy
+      rollback: >-
+        Same as pgvector: keep the source vector DB queryable until recall
+        and p95 latency are verified against the new index.
+
+  timeseries:
+    - name: timescaledb
+      label: 'TimescaleDB extension (hypertables)'
+      extension_required: { required: true, name: timescaledb }
+      maturity: >-
+        In production since 2017, widely deployed; out-ingests InfluxDB at
+        high device cardinality in published benchmarks.
+      operational_cost: >-
+        Hypertable chunk sizing and compression policies need tuning; not
+        a drop-in — it's a schema and ingestion-path change.
+      data_migration: copy
+      rollback: >-
+        Retain the source time-series store read-only until one full
+        retention window has passed on the new hypertable.
+
+    - name: pg-partman-brin
+      label: 'Plain partitioned tables + pg_partman + BRIN indexes'
+      extension_required: { required: true, name: pg_partman }
+      maturity: >-
+        pg_partman is a long-standing, narrowly-scoped partition-management
+        tool; BRIN indexes are core Postgres.
+      operational_cost: >-
+        Needs a scheduled job (typically pg_cron) to create/drop partitions
+        on a cadence — this is a maintenance obligation, not a one-time
+        setup.
+      data_migration: copy
+      rollback: >-
+        Same as timescaledb: keep the source store read-only until the new
+        partitioned tables have absorbed a full retention cycle.
+
+  olap:
+    - name: pg-analytics
+      label: 'pg_analytics (columnar/vectorized execution over Parquet)'
+      extension_required: { required: true, name: pg_analytics }
+      maturity: >-
+        Newer (ParadeDB), active development — evaluate on a non-critical
+        dashboard before routing customer-facing analytics through it.
+      operational_cost: >-
+        Columnar storage and foreign-table config to maintain; extension
+        lifecycle tied to one vendor, same caveat as pg_search.
+      data_migration: copy
+      rollback: >-
+        The warehouse's own data is untouched by this migration — analytics
+        queries can be re-pointed at the warehouse instantly if numbers
+        disagree.
+
+    - name: duckdb-attached
+      label: 'DuckDB attached over exported Parquet'
+      extension_required: { required: true, name: pg_duckdb }
+      maturity: >-
+        Very new (2024) and experimental — DuckDB itself is mature, but its
+        Postgres attachment story is not yet battle-tested at scale.
+      operational_cost: >-
+        Requires an export/refresh pipeline to keep the Parquet files in
+        sync with the warehouse; version-compatibility risk on Postgres
+        upgrades since the extension is young.
+      data_migration: copy
+      rollback: >-
+        Same as pg_analytics: the warehouse is unmodified, revert by
+        re-pointing dashboards at it.
+
+  graph:
+    - name: recursive-ctes
+      label: 'Recursive CTEs (plain SQL)'
+      extension_required: { required: false, name: null }
+      maturity: >-
+        Core SQL standard feature, fully mature; the correct default for
+        fixed-depth traversals with no graph-algorithm requirement.
+      operational_cost: >-
+        None beyond query-plan care — an unbounded recursive CTE against a
+        cyclic graph can run away, so a depth cap belongs in every query.
+      data_migration: copy
+      rollback: >-
+        Graph traversal logic lives in SQL text — reverting means
+        redeploying the previous query/service, not restoring data.
+
+    - name: apache-age
+      label: 'Apache AGE (openCypher in Postgres)'
+      extension_required: { required: true, name: age }
+      maturity: >-
+        Apache incubator project — genuine maturity risk, flagged in every
+        verdict that recommends it (PLAN.md 1.8).
+      operational_cost: >-
+        Adds a second query-language surface (Cypher) inside SQL; the
+        extension's upgrade path is less proven than core Postgres features.
+      data_migration: copy
+      rollback: >-
+        Same as recursive CTEs: application logic reverts by redeploy, not
+        by restoring data, since AGE's graph is imported (not authoritative)
+        during the migration window.
+
+  geospatial:
+    - name: postgis
+      label: 'PostGIS'
+      extension_required: { required: true, name: postgis }
+      maturity: >-
+        The reference implementation of SQL geospatial, in production for
+        over 20 years — typically more capable than bolt-on GIS layers.
+      operational_cost: >-
+        Large extension footprint but extremely well operationalized;
+        standard in every major managed Postgres offering.
+      data_migration: copy
+      rollback: >-
+        PostGIS geometries coexist with the source GIS system during
+        migration; keep dual-write until spatial query parity is verified,
+        then decommission the source.

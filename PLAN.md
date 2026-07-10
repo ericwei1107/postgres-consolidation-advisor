@@ -572,7 +572,7 @@ outputs, and done-condition.
 
 ### Stage 4 — Mapping table and threshold rules as data
 
-- [ ] **4.1 — Postgres-equivalent mapping table**
+- [x] **4.1 — Postgres-equivalent mapping table** ✅ 2026-07-09
   - Inputs/dependencies: types from 1.1 only.
   - Expected output: `rules/mappings.yaml` — for each StoreCategory, ordered
     Postgres-native options with tradeoffs, exactly the §Project table: cache →
