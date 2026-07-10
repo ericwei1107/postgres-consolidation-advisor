@@ -625,7 +625,7 @@ outputs, and done-condition.
     `explain queue.est-peak-msgs-sec` and `explain --list` golden-file tests;
     override test shows the overridden annotation in markdown output.
 
-- [ ] **4.3 — Signal extractors (the estimation model)**
+- [x] **4.3 — Signal extractors (the estimation model)** ✅ 2026-07-09
   - Inputs/dependencies: 4.2, Stage 2+3 outputs.
   - Expected output: `src/signals/*.ts`, one module per category needing
     estimation: `queueThroughput` (replicas × concurrency from compose/framework

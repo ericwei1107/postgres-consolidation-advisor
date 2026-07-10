@@ -17,3 +17,18 @@ export {
   type ConstantEntry,
 } from './rules.js';
 export { explainThreshold, listThresholds } from './explain.js';
+export {
+  queueThroughput,
+  cacheCommandMix,
+  cacheFanOut,
+  docSizeEstimate,
+  docUpdateShape,
+  vectorScale,
+  searchFeatures,
+  traversalShape,
+  olapPresenceSignals,
+  isSignalRange,
+  type Signal,
+  type SignalRange,
+  type Observability,
+} from './signals/index.js';

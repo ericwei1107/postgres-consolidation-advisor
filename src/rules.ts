@@ -60,6 +60,7 @@ const ProductsFileSchema = z.object({
   broker_schemes: z.record(z.string(), z.string()).default({}),
   env_vars: z.record(z.string(), z.string()).default({}),
   url_schemes: z.record(z.string(), z.string()).default({}),
+  embedding_dims: z.record(z.string(), z.number().int().positive()).default({}),
 });
 
 type ProductsFile = z.infer<typeof ProductsFileSchema>;
@@ -328,6 +329,11 @@ export function loadUrlSchemes(): Map<string, string> {
   return new Map(
     Object.entries(loadProductsFile().url_schemes).map(([scheme, product]) => [scheme.toLowerCase(), product]),
   );
+}
+
+/** Embedding-model name → dimensionality, for the vectorScale signal (PLAN.md 4.3). */
+export function loadEmbeddingDims(): Map<string, number> {
+  return new Map(Object.entries(loadProductsFile().embedding_dims));
 }
 
 let cachedCallPatterns: CallPatternRule[] | undefined;

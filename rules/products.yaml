@@ -241,3 +241,12 @@ url_schemes:
   clickhouse: clickhouse
   postgres: postgres
   postgresql: postgres
+
+# Embedding-model name → dimensionality (PLAN.md 4.3 vectorScale signal +
+# the RAM-math verdict text: vectors x dims x 4 bytes + graph overhead).
+# Threshold-shaped datum, lives here like every other one — not in TS.
+embedding_dims:
+  text-embedding-3-small: 1536
+  text-embedding-3-large: 3072
+  text-embedding-ada-002: 1536
+  all-MiniLM-L6-v2: 384

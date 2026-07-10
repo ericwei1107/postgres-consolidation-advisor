@@ -15,7 +15,7 @@ import type { Detection, Detector, DetectorContext } from './types.js';
  * match the product table by design (it is the consolidation target).
  */
 
-const COMPOSE_GLOBS = [
+export const COMPOSE_GLOBS = [
   '**/docker-compose*.yml',
   '**/docker-compose*.yaml',
   '**/compose.yml',
