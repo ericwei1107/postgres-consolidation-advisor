@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { analyze } from '../src/analyze.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
-import type { Verdict } from '../src/types.js';
+import { buildVerdictRules, computeVerdict } from '../src/scoring/index.js';
+import type { Signal } from '../src/signals/types.js';
+import type { StoreRole, Verdict } from '../src/types.js';
 
 const FIXTURES_DIR = join(__dirname, '..', 'fixtures');
 
@@ -101,6 +103,62 @@ describe('verdict engine golden files (done-conditions for 5.1)', () => {
 
   it('empty fixture produces zero verdicts', async () => {
     expect(await actualVerdicts('empty')).toEqual([]);
+  });
+
+  it('a value in an interior band gap (vector 50M-100M, where benchmarks stop) is borderline, not "no signal"', () => {
+    // vector.count-vectors bands: consolidate <5M, consolidate 5M-50M, keep
+    // >=100M. 75M was genuinely observed but sits between the cited bands —
+    // that is a borderline verdict; the total-absence fallback would
+    // misreport it as "unknown (no static signal found)".
+    const role: StoreRole = {
+      storeId: 'pinecone:default',
+      role: 'vector',
+      confidence: 'high',
+      classifiedBy: 'rule',
+      evidence: [{ kind: 'call-site', file: 'src/vectors.ts', line: 3, excerpt: 'index.upsert(' }],
+    };
+    const signal: Signal = {
+      variable: 'count-vectors',
+      value: 75_000_000,
+      observability: 'estimated',
+      evidence: [{ kind: 'call-site', file: 'src/vectors.ts', line: 3, excerpt: 'index.upsert(' }],
+    };
+    const verdict = computeVerdict(role, [signal], buildVerdictRules('vector'));
+    expect(verdict.decision).toBe('borderline');
+    expect(verdict.confidence).toBe('low');
+    expect(verdict.thresholdComparisons[0]?.observed).toBe('75,000,000 vectors');
+    expect(verdict.rationale).not.toContain('no static signal');
+  });
+
+  it('a value below a one-sided keep threshold (cache fan-out < 10) still skips that axis', () => {
+    // The counterpart guard: cache.fan-out-calls-per-request has ONLY a keep
+    // band (min 10). A fan-out of 3 is not in any band and not in an
+    // interior gap — the axis has nothing to say, so the verdict must fall
+    // through (here to the supporting command-mix axis), not go borderline.
+    const role: StoreRole = {
+      storeId: 'redis:cache',
+      role: 'cache',
+      confidence: 'high',
+      classifiedBy: 'rule',
+      evidence: [{ kind: 'call-site', file: 'src/cache.ts', line: 2, excerpt: 'redis.get(' }],
+    };
+    const signals: Signal[] = [
+      {
+        variable: 'fan-out-calls-per-request',
+        value: 3,
+        observability: 'estimated',
+        evidence: [{ kind: 'call-site', file: 'src/cache.ts', line: 2, excerpt: 'redis.get(' }],
+      },
+      {
+        variable: 'command-mix-plain-kv-share',
+        value: 1,
+        observability: 'static',
+        evidence: [{ kind: 'call-site', file: 'src/cache.ts', line: 2, excerpt: 'redis.get(' }],
+      },
+    ];
+    const verdict = computeVerdict(role, signals, buildVerdictRules('cache'));
+    expect(verdict.decision).toBe('consolidate');
+    expect(verdict.thresholdComparisons[0]?.variable).toBe('command-mix-plain-kv-share');
   });
 });
 

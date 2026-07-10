@@ -283,15 +283,24 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
     const hi = isSignalRange(signal.value) ? signal.value.max : signal.value;
     const loBand = bandContaining(lo, threshold.bands);
     const hiBand = bandContaining(hi, threshold.bands);
-    // A one-sided threshold (e.g. cache.fan-out-calls-per-request: only a
-    // `keep` band starting at 10) has no band at all below its cutoff. A
-    // value that lands in that gap isn't "straddling" anything — this axis
-    // simply has nothing to say about it, so move on to the next threshold
-    // (or the supporting-axis / total-absence fallback) rather than
-    // reporting a false borderline.
-    if (!loBand && !hiBand) continue;
+    if (!loBand && !hiBand) {
+      // Two very different kinds of "no band": a one-sided threshold (e.g.
+      // cache.fan-out-calls-per-request: only a `keep` band starting at 10)
+      // has no band at all below its cutoff — a value there isn't
+      // "straddling" anything, this axis simply has nothing to say, so move
+      // on to the next threshold (or the supporting-axis / total-absence
+      // fallback) rather than reporting a false borderline. But a value in
+      // an INTERIOR gap — cited bands exist both below and above it, e.g.
+      // vector's 50M-100M where public benchmarks stop (A4) — was genuinely
+      // observed and genuinely undecided: that is a borderline, and skipping
+      // it would misreport the store as "no static signal found".
+      const interiorGap =
+        threshold.bands.some((b) => b.max !== undefined && b.max <= lo) &&
+        threshold.bands.some((b) => b.min !== undefined && b.min > hi);
+      if (!interiorGap) continue;
+    }
     const straddles = !loBand || !hiBand || loBand.decision !== hiBand.decision;
-    const decision: Verdict['decision'] = straddles ? 'borderline' : loBand.decision === 'borderline' ? 'borderline' : loBand.decision;
+    const decision: Verdict['decision'] = straddles ? 'borderline' : loBand.decision;
     const band = straddles ? threshold.bands.find((b) => b.decision === 'borderline') : hiBand;
 
     const confidence: Confidence = straddles ? 'low' : confidenceFromObservability(signal.observability);
