@@ -89,6 +89,49 @@ describe('usage harvester (Stage 3.1)', () => {
     ]);
   });
 
+  it('tracks Python module-style construction (import redis; r = redis.Redis(...))', async () => {
+    const dir = tempRepo();
+    writeFileSync(
+      join(dir, 'client.py'),
+      ['import redis', 'r = redis.Redis(host="redis-cache")', 'r.get("profile:1")'].join('\n'),
+    );
+    const usage = await harvestUsage(stores('redis:redis-cache', 'redis:default'), context(dir));
+    expect(usage.map((hit) => [hit.storeId, hit.command])).toEqual([['redis:redis-cache', 'get']]);
+  });
+
+  it('tracks a Python aliased module import (import redis as redis_lib)', async () => {
+    const dir = tempRepo();
+    writeFileSync(
+      join(dir, 'client.py'),
+      ['import redis as redis_lib', 'client = redis_lib.Redis(host="redis-broker")', 'client.set("job:1", "pending")'].join('\n'),
+    );
+    const usage = await harvestUsage(stores('redis:redis-broker', 'redis:default'), context(dir));
+    expect(usage.map((hit) => [hit.storeId, hit.command])).toEqual([['redis:redis-broker', 'set']]);
+  });
+
+  it('tracks namespaced JS constructors (new Redis.Cluster(...))', async () => {
+    const dir = tempRepo();
+    writeFileSync(
+      join(dir, 'cluster.ts'),
+      [
+        "import Redis from 'ioredis';",
+        "const cluster = new Redis.Cluster([{ host: 'redis-cache', port: 6379 }]);",
+        'cluster.get("profile:1");',
+      ].join('\n'),
+    );
+    const usage = await harvestUsage(stores('redis:redis-cache', 'redis:default'), context(dir));
+    expect(usage.map((hit) => [hit.storeId, hit.command])).toEqual([['redis:redis-cache', 'get']]);
+  });
+
+  it('does not treat a prefix-named module (import redispatcher) as a redis import', async () => {
+    const dir = tempRepo();
+    writeFileSync(
+      join(dir, 'other.py'),
+      ['import redispatcher', 'r = redispatcher.Redis()', 'r.get("x")'].join('\n'),
+    );
+    expect(await harvestUsage(stores('redis:default'), context(dir))).toEqual([]);
+  });
+
   it('tracks factory-created Node Redis clients', async () => {
     const dir = tempRepo();
     writeFileSync(

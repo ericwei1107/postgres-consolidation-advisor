@@ -38,6 +38,37 @@ export function rulesDir(): string {
   });
 }
 
+/**
+ * Parse + zod-validate one bundled rules file. Rules files are packaged
+ * artifacts, so any failure here is a packaging bug and hard-fails (exit 2),
+ * per the PLAN.md 1.1 rules-file policy.
+ */
+function loadRulesFile<Schema extends z.ZodType>(filename: string, schema: Schema): z.infer<Schema> {
+  const file = join(rulesDir(), filename);
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
+  } catch (e) {
+    throw new AdvisorError({
+      problem: `rules/${filename} is not valid YAML`,
+      cause: e instanceof Error ? e.message : String(e),
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new AdvisorError({
+      problem: `rules/${filename} is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
+      cause: issue?.message ?? 'schema validation failed',
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  return result.data;
+}
+
 const ClientLibrarySchema = z
   .object({
     product: z.string().optional(),
@@ -71,6 +102,8 @@ const CallPatternsFileSchema = z.object({
     z.object({
       libraries: z.array(z.string()).min(1),
       patterns: z.array(z.string()).min(1),
+      /** Imported constructor symbols that count as call sites on their own (e.g. BullMQ `Queue`/`Worker`). */
+      constructors: z.array(z.string()).default([]),
     }),
   ),
 });
@@ -220,6 +253,8 @@ export interface CallPatternRule {
   product: string;
   libraries: string[];
   patterns: RegExp[];
+  /** Lowercased constructor symbols that are call sites when imported from this product's libraries. */
+  constructors: Set<string>;
 }
 
 export interface RoleRule {
@@ -258,30 +293,7 @@ export const MAPPED_CATEGORIES: StoreCategory[] = [
 let cachedFile: ProductsFile | undefined;
 
 function loadProductsFile(): ProductsFile {
-  if (cachedFile) return cachedFile;
-  const file = join(rulesDir(), 'products.yaml');
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
-  } catch (e) {
-    throw new AdvisorError({
-      problem: 'rules/products.yaml is not valid YAML',
-      cause: e instanceof Error ? e.message : String(e),
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  const result = ProductsFileSchema.safeParse(parsed);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    throw new AdvisorError({
-      problem: `rules/products.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
-      cause: issue?.message ?? 'schema validation failed',
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  cachedFile = result.data;
+  cachedFile ??= loadRulesFile('products.yaml', ProductsFileSchema);
   return cachedFile;
 }
 
@@ -356,32 +368,12 @@ let cachedCallPatterns: CallPatternRule[] | undefined;
 /** Product-specific import scopes and command patterns for the usage harvester. */
 export function loadCallPatterns(): CallPatternRule[] {
   if (cachedCallPatterns) return cachedCallPatterns;
-  const file = join(rulesDir(), 'call-patterns.yaml');
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
-  } catch (e) {
-    throw new AdvisorError({
-      problem: 'rules/call-patterns.yaml is not valid YAML',
-      cause: e instanceof Error ? e.message : String(e),
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  const result = CallPatternsFileSchema.safeParse(parsed);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    throw new AdvisorError({
-      problem: `rules/call-patterns.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
-      cause: issue?.message ?? 'schema validation failed',
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  cachedCallPatterns = Object.entries(result.data.products).map(([product, def]) => ({
+  const file = loadRulesFile('call-patterns.yaml', CallPatternsFileSchema);
+  cachedCallPatterns = Object.entries(file.products).map(([product, def]) => ({
     product,
     libraries: def.libraries.map((library) => library.toLowerCase()),
     patterns: def.patterns.map((pattern) => new RegExp(pattern, 'g')),
+    constructors: new Set(def.constructors.map((c) => c.toLowerCase())),
   }));
   return cachedCallPatterns;
 }
@@ -391,30 +383,9 @@ let cachedRoles: Map<string, RoleRule> | undefined;
 /** Deterministic product and command-mix rules for the Stage 3 role classifier. */
 export function loadRoleRules(): Map<string, RoleRule> {
   if (cachedRoles) return cachedRoles;
-  const file = join(rulesDir(), 'roles.yaml');
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
-  } catch (e) {
-    throw new AdvisorError({
-      problem: 'rules/roles.yaml is not valid YAML',
-      cause: e instanceof Error ? e.message : String(e),
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  const result = RolesFileSchema.safeParse(parsed);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    throw new AdvisorError({
-      problem: `rules/roles.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
-      cause: issue?.message ?? 'schema validation failed',
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
+  const file = loadRulesFile('roles.yaml', RolesFileSchema);
   cachedRoles = new Map(
-    Object.entries(result.data.products).map(([product, rule]) => [
+    Object.entries(file.products).map(([product, rule]) => [
       product,
       {
         product,
@@ -455,30 +426,9 @@ let cachedMappings: Map<StoreCategory, MappingOption[]> | undefined;
 /** Ordered Postgres-native migration options per StoreCategory — PLAN.md 4.1. */
 export function loadMappings(): Map<StoreCategory, MappingOption[]> {
   if (cachedMappings) return cachedMappings;
-  const file = join(rulesDir(), 'mappings.yaml');
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
-  } catch (e) {
-    throw new AdvisorError({
-      problem: 'rules/mappings.yaml is not valid YAML',
-      cause: e instanceof Error ? e.message : String(e),
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  const result = MappingsFileSchema.safeParse(parsed);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    throw new AdvisorError({
-      problem: `rules/mappings.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
-      cause: issue?.message ?? 'schema validation failed',
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
+  const file = loadRulesFile('mappings.yaml', MappingsFileSchema);
   const map = new Map<StoreCategory, MappingOption[]>();
-  for (const [category, options] of Object.entries(result.data.mappings)) {
+  for (const [category, options] of Object.entries(file.mappings)) {
     const categoryResult = StoreCategorySchema.safeParse(category);
     if (!categoryResult.success) {
       throw new AdvisorError({
@@ -575,30 +525,7 @@ function toThresholdSources(sources: z.infer<typeof ThresholdSourceSchema>[]): T
 let cachedThresholdsFile: z.infer<typeof ThresholdsFileSchema> | undefined;
 
 function loadThresholdsFile(): z.infer<typeof ThresholdsFileSchema> {
-  if (cachedThresholdsFile) return cachedThresholdsFile;
-  const file = join(rulesDir(), 'thresholds.yaml');
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
-  } catch (e) {
-    throw new AdvisorError({
-      problem: 'rules/thresholds.yaml is not valid YAML',
-      cause: e instanceof Error ? e.message : String(e),
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  const result = ThresholdsFileSchema.safeParse(parsed);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    throw new AdvisorError({
-      problem: `rules/thresholds.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
-      cause: issue?.message ?? 'schema validation failed',
-      fix: 'this is a packaging bug — please file an issue',
-      docsAnchor: 'troubleshooting',
-    });
-  }
-  cachedThresholdsFile = result.data;
+  cachedThresholdsFile ??= loadRulesFile('thresholds.yaml', ThresholdsFileSchema);
   return cachedThresholdsFile;
 }
 

@@ -78,7 +78,8 @@ function importScopes(raw: string, rules: CallPatternRule[]): Map<string, Produc
           if (name?.[1]) symbols.add(name[2] ?? name[1]);
         }
       }
-      const pythonImport = new RegExp(`^\\s*import\\s+${pythonModule}(?:\\s+as\\s+([A-Za-z_]\w*))?`, 'gm');
+      // `\b` keeps `import redispatcher` from counting as a redis import.
+      const pythonImport = new RegExp(`^\\s*import\\s+${pythonModule}\\b(?:\\s+as\\s+([A-Za-z_]\\w*))?`, 'gm');
       for (const match of raw.matchAll(pythonImport)) {
         imported = true;
         symbols.add(match[1] ?? library.split(/[/-]/).pop() ?? library);
@@ -108,29 +109,43 @@ function expandExpression(expression: string, assignments: Map<string, string>):
   return result;
 }
 
-function receiversFor(raw: string, scopes: Map<string, ProductScope>): Map<string, Receiver> {
+/**
+ * Resolve a construction/factory callee path to a product via its imported
+ * symbols: the last segment (`new Redis(` / destructured `createClient(`),
+ * the full path, or — for dotted paths — the root module symbol, which is how
+ * Python (`redis.Redis(...)`) and namespace imports (`new Redis.Cluster(...)`)
+ * spell it.
+ */
+function productForCallee(path: string, symbolProduct: Map<string, string>): string | undefined {
+  const segments = path.split('.');
+  return (
+    symbolProduct.get(segments[segments.length - 1] ?? '') ??
+    symbolProduct.get(path) ??
+    (segments.length > 1 ? symbolProduct.get(segments[0] ?? '') : undefined)
+  );
+}
+
+const RECEIVER_PATTERNS = [
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+([A-Za-z_$][\w$.]*)\s*\(/g,
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$.]*)\s*\(/g,
+  /(?:^|\n)\s*([A-Za-z_$][\w$]*)\s*=\s*(?:new\s+)?([A-Za-z_$][\w$.]*)\s*\(/g,
+];
+
+function receiversFor(
+  raw: string,
+  scopes: Map<string, ProductScope>,
+  assignments: Map<string, string>,
+): Map<string, Receiver> {
   const receivers = new Map<string, Receiver>();
-  const assignments = assignmentExpressions(raw);
   const symbolProduct = new Map<string, string>();
   for (const [product, scope] of scopes) for (const symbol of scope.symbols) symbolProduct.set(symbol, product);
 
-  for (const match of raw.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+([A-Za-z_$][\w$.]*)\s*\(/g)) {
-    const target = match[1];
-    const constructor = match[2]?.split('.').pop() ?? '';
-    const product = symbolProduct.get(constructor) ?? symbolProduct.get(match[2] ?? '');
-    if (target && product) receivers.set(target, { product, expression: assignments.get(target) ?? match[0] ?? '' });
-  }
-  for (const match of raw.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$.]*)\s*\(/g)) {
-    const target = match[1];
-    const factory = match[2]?.split('.').pop() ?? '';
-    const product = symbolProduct.get(factory) ?? symbolProduct.get(match[2] ?? '');
-    if (target && product) receivers.set(target, { product, expression: assignments.get(target) ?? match[0] ?? '' });
-  }
-  for (const match of raw.matchAll(/(?:^|\n)\s*([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$.]*)\s*\(/g)) {
-    const target = match[1];
-    const constructor = match[2]?.split('.').pop() ?? '';
-    const product = symbolProduct.get(constructor) ?? symbolProduct.get(match[2] ?? '');
-    if (target && product) receivers.set(target, { product, expression: assignments.get(target) ?? match[0] ?? '' });
+  for (const pattern of RECEIVER_PATTERNS) {
+    for (const match of raw.matchAll(pattern)) {
+      const target = match[1];
+      const product = productForCallee(match[2] ?? '', symbolProduct);
+      if (target && product) receivers.set(target, { product, expression: assignments.get(target) ?? match[0] ?? '' });
+    }
   }
 
   // Propagate through collection/database objects and Kafka producer/consumer factories.
@@ -171,8 +186,9 @@ function commandAt(line: string, index: number): { receiver?: string; command: s
   return constructor ? { command: constructor } : undefined;
 }
 
+/** A bare constructor call (`new Queue(...)`) counts as a call site when the product's rules say so. */
 function isConstructorCommand(command: string, scope: ProductScope): boolean {
-  return scope.symbols.has(command) && /^(Queue|Worker|Kafka)$/i.test(command);
+  return scope.symbols.has(command) && scope.rule.constructors.has(command.toLowerCase());
 }
 
 /**
@@ -228,8 +244,8 @@ export async function harvestUsage(
       .join('\n');
     const scopes = importScopes(analysisRaw, rules);
     if (scopes.size === 0) continue;
-    const receivers = receiversFor(analysisRaw, scopes);
     const assignments = assignmentExpressions(analysisRaw);
+    const receivers = receiversFor(analysisRaw, scopes, assignments);
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex] ?? '';
@@ -238,9 +254,9 @@ export async function harvestUsage(
         for (const pattern of scope.rule.patterns) {
           pattern.lastIndex = 0;
           for (const match of line.matchAll(pattern)) {
-            const command = match[1] ?? commandAt(line, match.index ?? 0)?.command;
-            if (!command) continue;
             const location = commandAt(line, match.index ?? 0);
+            const command = match[1] ?? location?.command;
+            if (!command) continue;
             const receiver = location?.receiver ? receivers.get(location.receiver) : undefined;
             const tracked = receiver?.product === product;
             const constructor = isConstructorCommand(command, scope);

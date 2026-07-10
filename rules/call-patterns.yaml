@@ -1,11 +1,15 @@
 # Call-site patterns for Stage 3.1. A file is considered for a product only
 # when it imports/requires one of that product's client libraries.
+# `constructors` lists imported symbols whose bare construction counts as a
+# call site on its own (no tracked receiver required) — e.g. `new Worker(...)`
+# is queue usage even before any method is called on it.
 products:
   redis:
     libraries: [ioredis, redis, node-redis, bull, bullmq, bee-queue, celery]
     patterns:
       - '\.(get|set|setex|del|expire|ttl|mget|mset|zadd|zrange|publish|subscribe|xadd|eval|incr|hget|hset|hgetall|hdel|lpush|rpush|lpop|rpop|lrange|sadd|srem|smembers|sismember|add)\s*\('
       - '\b(Queue|Worker)\s*\('
+    constructors: [Queue, Worker]
   memcached:
     libraries: [memcached, pymemcache, python-memcached, dalli]
     patterns:
@@ -29,6 +33,7 @@ products:
     patterns:
       - '\.(producer|consumer|send|subscribe|run|eachMessage)\s*\('
       - '\b(Kafka)\s*\('
+    constructors: [Kafka]
   rabbitmq:
     libraries: [amqplib, pika, bunny]
     patterns:
