@@ -23,10 +23,12 @@ export const COMPOSE_GLOBS = [
 ];
 const K8S_GLOBS = ['**/k8s/**/*.yml', '**/k8s/**/*.yaml'];
 
-/** Resolve `image: ${VAR:-default}` interpolation to a concrete ref, or null. */
+/** Resolve `image: ${VAR:-default}` / `${VAR-default}` interpolation to a concrete ref, or null. */
 function resolveImage(image: string): { value: string; interpolated: boolean } | null {
   if (!image.includes('${')) return { value: image, interpolated: false };
-  const withDefault = /\$\{[^:}]+:-([^}]+)\}/;
+  // Var names can't contain `:` or `-`, so the lazy prefix stops at either
+  // compose default marker (`:-` treats empty as unset, `-` only unset).
+  const withDefault = /\$\{[^:}]+?:?-([^}]+)\}/;
   const m = image.match(withDefault);
   if (!m || m[1] === undefined) return null; // no default → not statically knowable
   return { value: image.replace(withDefault, m[1]), interpolated: true };
@@ -74,7 +76,7 @@ function detectionFromMatch(
   };
 }
 
-function parseCompose(file: string, rel: string, raw: string, ctx: DetectorContext): Detection[] {
+function parseCompose(rel: string, raw: string, ctx: DetectorContext): Detection[] {
   let docs;
   try {
     docs = parseAllDocuments(raw);
@@ -162,7 +164,7 @@ function collectK8sImages(node: unknown, out: string[]): void {
   }
 }
 
-function parseK8s(file: string, rel: string, raw: string, ctx: DetectorContext): Detection[] {
+function parseK8s(rel: string, raw: string, ctx: DetectorContext): Detection[] {
   let docs;
   try {
     docs = parseAllDocuments(raw);
@@ -227,12 +229,10 @@ export const composeDetector: Detector = {
 
     const detections: Detection[] = [];
     for (const file of composeFiles) {
-      const rel = toRelPosix(ctx.repoPath, file);
-      detections.push(...parseCompose(file, rel, readFileSync(file, 'utf8'), ctx));
+      detections.push(...parseCompose(toRelPosix(ctx.repoPath, file), readFileSync(file, 'utf8'), ctx));
     }
     for (const file of k8sFiles) {
-      const rel = toRelPosix(ctx.repoPath, file);
-      detections.push(...parseK8s(file, rel, readFileSync(file, 'utf8'), ctx));
+      detections.push(...parseK8s(toRelPosix(ctx.repoPath, file), readFileSync(file, 'utf8'), ctx));
     }
     return detections;
   },

@@ -95,6 +95,16 @@ describe('compose/k8s detector (done-conditions for 2.1)', () => {
     expect(stores.map((s) => s.product)).toEqual(['redis']);
   });
 
+  it('resolves ${VAR-default} (unset-only) image interpolation', async () => {
+    const dir = tempRepo();
+    writeFileSync(
+      join(dir, 'docker-compose.yml'),
+      ['services:', '  q:', '    image: ${MONGO_IMAGE-mongo:7}'].join('\n'),
+    );
+    const { stores } = await run(dir);
+    expect(stores.map((s) => s.product)).toEqual(['mongodb']);
+  });
+
   it('skips a malformed compose file with a warning and does not crash', async () => {
     const dir = tempRepo();
     writeFileSync(join(dir, 'docker-compose.yml'), 'services: [this is: not: valid: yaml');
