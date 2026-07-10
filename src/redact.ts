@@ -25,3 +25,12 @@ export function redactValue(name: string, value: string): string {
 export function redactedAssignment(name: string, value: string): string {
   return `${name}=${redactValue(name, value)}`;
 }
+
+// Same shape as URL_WITH_CREDS but unanchored: catches credentials in URLs
+// embedded anywhere in a source line (string literals at call sites).
+const URL_CREDS_ANYWHERE = /([a-z][a-z0-9+.-]*:\/\/)([^@/\s"'`]+)@/gi;
+
+/** Redact credentials inside URLs embedded anywhere in a source-code line. */
+export function redactLine(line: string): string {
+  return line.replace(URL_CREDS_ANYWHERE, '$1<redacted>@');
+}

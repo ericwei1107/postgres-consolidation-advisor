@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { redactLine } from '../redact.js';
 import { loadCallPatterns, type CallPatternRule } from '../rules.js';
 import { scanFiles, toRelPosix } from '../scan.js';
 import type { Evidence, DetectedStore } from '../types.js';
@@ -31,7 +32,9 @@ interface Receiver {
 }
 
 function excerpt(line: string): string {
-  const trimmed = line.trim().replace(/\s+/g, ' ');
+  // A call-site line can embed a connection URL with credentials (PLAN.md 2.3
+  // redaction rule applies to every Evidence surface, not just env files).
+  const trimmed = redactLine(line.trim().replace(/\s+/g, ' '));
   return trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed;
 }
 
