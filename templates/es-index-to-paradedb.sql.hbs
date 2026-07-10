@@ -1,0 +1,21 @@
+-- Migration: {{tableName}} (Elasticsearch index) -> ParadeDB pg_search (BM25 via Tantivy)
+-- An extension adoption, not vanilla Postgres — flagged in every verdict
+-- that recommends it (PLAN.md section 1.3, rules/mappings.yaml
+-- search.paradedb-pg-search).
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+CREATE INDEX IF NOT EXISTS {{indexName}} ON {{tableName}}
+  USING bm25 (id
+{{#each textColumns}}
+    , {{this}}
+{{/each}}
+  )
+  WITH (key_field = 'id');
+
+-- Example BM25-ranked query, equivalent to an ES match + relevance sort:
+SELECT id, paradedb.score(id) AS rank
+FROM {{tableName}}
+WHERE {{tableName}} @@@ paradedb.match('{{#each textColumns}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}', $1)
+ORDER BY rank DESC
+LIMIT 20;

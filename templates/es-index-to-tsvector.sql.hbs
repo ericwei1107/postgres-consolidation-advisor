@@ -1,0 +1,24 @@
+-- Migration: {{tableName}} (Elasticsearch index) -> tsvector + pg_trgm
+-- Native FTS performs well into the low millions of rows; top-N ranked
+-- queries score every match, unlike a dedicated search engine's approximate
+-- top-k (PLAN.md section 1.3).
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+ALTER TABLE {{tableName}}
+  ADD COLUMN IF NOT EXISTS {{tsvectorColumn}} tsvector GENERATED ALWAYS AS (
+    to_tsvector('english',
+{{#each textColumns}}
+      coalesce({{this}}, ''){{#unless @last}} || ' ' ||{{/unless}}
+{{/each}}
+    )
+  ) STORED;
+
+CREATE INDEX IF NOT EXISTS {{indexName}} ON {{tableName}} USING gin ({{tsvectorColumn}});
+
+-- Example ranked query, equivalent to an ES match + relevance sort:
+SELECT id, ts_rank({{tsvectorColumn}}, query) AS rank
+FROM {{tableName}}, plainto_tsquery('english', $1) AS query
+WHERE {{tsvectorColumn}} @@ query
+ORDER BY rank DESC
+LIMIT 20;

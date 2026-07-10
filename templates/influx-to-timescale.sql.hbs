@@ -1,0 +1,22 @@
+-- Migration: {{tableName}} (InfluxDB measurement) -> TimescaleDB hypertable
+-- Out-ingests InfluxDB at high device cardinality in published benchmarks —
+-- the specialized store isn't even faster in the regime that matters
+-- (PLAN.md section 1.6).
+
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+CREATE TABLE IF NOT EXISTS {{tableName}} (
+  {{timeColumn}} timestamptz NOT NULL,
+  device_id text NOT NULL,
+  value double precision NOT NULL
+);
+
+SELECT create_hypertable('{{tableName}}', by_range('{{timeColumn}}'));
+
+CREATE INDEX IF NOT EXISTS {{tableName}}_device_time_idx ON {{tableName}} (device_id, {{timeColumn}} DESC);
+
+-- Example downsampled rollup, equivalent to an InfluxDB continuous query:
+SELECT time_bucket('1 hour', {{timeColumn}}) AS bucket, device_id, avg(value) AS avg_value
+FROM {{tableName}}
+GROUP BY bucket, device_id
+ORDER BY bucket DESC;

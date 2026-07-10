@@ -1,0 +1,19 @@
+-- Migration: Cypher fixed-depth traversal -> plain SQL recursive CTE
+-- The correct default for <=3-hop traversals with no graph-algorithm
+-- requirement (PLAN.md section 1.8); a depth cap is required since an
+-- unbounded recursive CTE against a cyclic graph can otherwise run away.
+
+WITH RECURSIVE {{cteName}} AS (
+  SELECT source_id, target_id, 1 AS depth
+  FROM {{tableName}}
+
+  UNION ALL
+
+  SELECT e.source_id, e.target_id, t.depth + 1
+  FROM {{tableName}} e
+  JOIN {{cteName}} t ON e.source_id = t.target_id
+  WHERE t.depth < {{maxDepth}}
+)
+SELECT DISTINCT source_id, target_id, depth
+FROM {{cteName}}
+ORDER BY depth;

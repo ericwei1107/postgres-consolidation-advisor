@@ -1,0 +1,31 @@
+-- Migration: {{tableName}} (MongoDB collection) -> JSONB column + GIN index
+-- Hot fields are promoted to real columns: a field-level mutator ($inc/$push)
+-- on a TOASTed (>~2KB) document otherwise rewrites the whole document plus
+-- all its indexes (PLAN.md section 1.4). Everything else stays in {{coldColumn}}.
+
+CREATE TABLE IF NOT EXISTS {{tableName}} (
+  id text PRIMARY KEY
+{{#each hotColumns}}
+  , {{name}} {{sqlType}}
+{{/each}}
+  , {{coldColumn}} jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS {{ginIndexName}} ON {{tableName}} USING gin ({{coldColumn}});
+
+-- Example one-time migration from a FerretDB / mongoexport JSON dump staged
+-- into a `{{tableName}}_import(doc jsonb)` table:
+INSERT INTO {{tableName}} (
+  id
+{{#each hotColumns}}
+  , {{name}}
+{{/each}}
+  , {{coldColumn}}
+)
+SELECT
+  doc->>'_id'
+{{#each hotColumns}}
+  , (doc->>'{{name}}')::{{sqlType}}
+{{/each}}
+  , doc - '_id'{{#each hotColumns}} - '{{name}}'{{/each}}
+FROM {{tableName}}_import;

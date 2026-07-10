@@ -1,0 +1,35 @@
+-- Migration: {{tableName}} cache (Redis GET/SET/EXPIRE) -> UNLOGGED table + pg_cron TTL sweep
+-- Postgres has no native key TTL: expiry here is a polling sweep, not
+-- push-based like Redis EXPIRE (rules/mappings.yaml cache.unlogged-table).
+
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+CREATE UNLOGGED TABLE IF NOT EXISTS {{tableName}} (
+  key text PRIMARY KEY,
+  value jsonb NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS {{tableName}}_expires_at_idx ON {{tableName}} (expires_at);
+
+-- Runs every minute; replaces Redis's push-based EXPIRE.
+SELECT cron.schedule(
+  '{{tableName}}_ttl_sweep',
+  '* * * * *',
+  $$DELETE FROM {{tableName}} WHERE expires_at < now()$$
+);
+
+-- Example get/set functions, equivalent to Redis GET/SET/EXPIRE:
+
+CREATE OR REPLACE FUNCTION {{tableName}}_get(p_key text)
+RETURNS jsonb AS $$
+  SELECT value FROM {{tableName}}
+  WHERE key = p_key AND expires_at > now();
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION {{tableName}}_set(p_key text, p_value jsonb, p_ttl_seconds int DEFAULT {{ttlSeconds}})
+RETURNS void AS $$
+  INSERT INTO {{tableName}} (key, value, expires_at)
+  VALUES (p_key, p_value, now() + make_interval(secs => p_ttl_seconds))
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at;
+$$ LANGUAGE sql VOLATILE;

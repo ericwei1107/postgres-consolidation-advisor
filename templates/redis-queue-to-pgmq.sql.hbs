@@ -1,0 +1,15 @@
+-- Migration: {{queueName}} (Redis-backed job queue) -> pgmq extension
+-- rules/mappings.yaml queue.pgmq.
+
+CREATE EXTENSION IF NOT EXISTS pgmq;
+
+SELECT pgmq.create('{{queueName}}');
+
+-- Enqueue a job (replaces e.g. BullMQ's Queue.add):
+SELECT * FROM pgmq.send('{{queueName}}', '{"example": true}'::jsonb);
+
+-- Read up to 10 jobs, hidden from other readers for 30s (replaces a Worker's poll loop):
+SELECT * FROM pgmq.read('{{queueName}}', 30, 10);
+
+-- Archive a completed job by its message id (replaces marking a job done):
+SELECT pgmq.archive('{{queueName}}', 1);

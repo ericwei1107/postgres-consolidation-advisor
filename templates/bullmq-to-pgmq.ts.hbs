@@ -1,0 +1,32 @@
+// Migration: BullMQ "{{queueName}}" queue -> pgmq (Postgres-native queue extension)
+// Run once: CREATE EXTENSION pgmq; SELECT pgmq.create('{{queueName}}');
+
+/** Minimal shape — swap in your existing pg/postgres.js/Prisma connection. */
+interface SqlClient {
+  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+}
+
+export async function enqueue{{pascalName}}(db: SqlClient, payload: unknown): Promise<void> {
+  await db.query('select pgmq.send($1, $2::jsonb)', ['{{queueName}}', JSON.stringify(payload)]);
+}
+
+export interface {{pascalName}}Message {
+  msg_id: number;
+  message: unknown;
+}
+
+export async function read{{pascalName}}(
+  db: SqlClient,
+  visibilityTimeoutSeconds = 30,
+  batchSize = 1,
+): Promise<{{pascalName}}Message[]> {
+  const { rows } = await db.query<{{pascalName}}Message>(
+    'select msg_id, message from pgmq.read($1, $2, $3)',
+    ['{{queueName}}', visibilityTimeoutSeconds, batchSize],
+  );
+  return rows;
+}
+
+export async function archive{{pascalName}}(db: SqlClient, msgId: number): Promise<void> {
+  await db.query('select pgmq.archive($1, $2)', ['{{queueName}}', msgId]);
+}

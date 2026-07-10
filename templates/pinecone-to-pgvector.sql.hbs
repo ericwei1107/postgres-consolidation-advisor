@@ -1,0 +1,20 @@
+-- Migration: {{tableName}} (Pinecone index) -> pgvector (HNSW index)
+-- HNSW wants its index resident in RAM: size for vectors x dims x 4 bytes
+-- plus graph overhead before committing to this path (PLAN.md section 1.5).
+
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS {{tableName}} (
+  id text PRIMARY KEY,
+  embedding vector({{dims}}) NOT NULL,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS {{indexName}} ON {{tableName}}
+  USING hnsw (embedding vector_cosine_ops);
+
+-- Example k-nearest-neighbors query, equivalent to a Pinecone query() call:
+SELECT id, metadata, embedding <=> $1 AS distance
+FROM {{tableName}}
+ORDER BY embedding <=> $1
+LIMIT 10;
