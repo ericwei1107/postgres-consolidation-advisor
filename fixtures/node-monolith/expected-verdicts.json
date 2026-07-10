@@ -1,0 +1,77 @@
+[
+  {
+    "storeId": "elasticsearch:elasticsearch",
+    "role": "search",
+    "decision": "consolidate",
+    "fitScore": 70,
+    "confidence": "medium",
+    "thresholdComparisons": [
+      {
+        "variable": "feature-signal-count",
+        "observed": "0",
+        "threshold": "corpus-size-docs is not statically observable; decided on feature-signal-count instead",
+        "source": "https://neon.com/blog/postgres-full-text-search-vs-elasticsearch",
+        "passed": true
+      }
+    ],
+    "rationale": "Consolidate elasticsearch:elasticsearch — corpus-size-docs isn't statically observable in this repo, so the verdict is decided on the observable proxy instead: feature-signal-count = 0. Evidence: src/search.ts:6.",
+    "postgresEquivalent": "tsvector + pg_trgm",
+    "snippetId": "tsvector-pg-trgm",
+    "migrationEffort": {
+      "callSites": 1,
+      "filesTouched": 1,
+      "dataMigration": "copy",
+      "rollbackNote": "The search index is derived data — drop the generated column/index and re-point queries at the old search cluster, which stays available (read-only) until the cutover is verified."
+    }
+  },
+  {
+    "storeId": "redis:redis",
+    "role": "cache",
+    "decision": "consolidate",
+    "fitScore": 70,
+    "confidence": "high",
+    "thresholdComparisons": [
+      {
+        "variable": "command-mix-plain-kv-share",
+        "observed": "1",
+        "threshold": "est-ops-per-sec is not statically observable; decided on command-mix-plain-kv-share instead",
+        "source": "https://dev.to/raphaeldelio/can-postgres-replace-redis-as-a-cache-2ne1",
+        "passed": true
+      }
+    ],
+    "rationale": "Consolidate redis:redis — est-ops-per-sec isn't statically observable in this repo, so the verdict is decided on the observable proxy instead: command-mix-plain-kv-share = 1. Evidence: src/cache.ts:7.",
+    "postgresEquivalent": "UNLOGGED table + pg_cron TTL sweep",
+    "snippetId": "unlogged-table",
+    "migrationEffort": {
+      "callSites": 6,
+      "filesTouched": 1,
+      "dataMigration": "none",
+      "rollbackNote": "Cache contents are derived/ephemeral — no rollback needed, point reads back at Redis and let the UNLOGGED table go cold."
+    }
+  },
+  {
+    "storeId": "redis:redis",
+    "role": "queue",
+    "decision": "consolidate",
+    "fitScore": 90,
+    "confidence": "medium",
+    "thresholdComparisons": [
+      {
+        "variable": "est-peak-msgs-sec",
+        "observed": "2-200 msgs/sec",
+        "threshold": "value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec",
+        "source": "https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525",
+        "passed": true
+      }
+    ],
+    "rationale": "Consolidate redis:redis — est-peak-msgs-sec observed 2-200 msgs/sec vs value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec (independent: https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525). Evidence: package.json:14.",
+    "postgresEquivalent": "Plain SQL, FOR UPDATE SKIP LOCKED",
+    "snippetId": "skip-locked",
+    "migrationEffort": {
+      "callSites": 4,
+      "filesTouched": 4,
+      "dataMigration": "dual-write",
+      "rollbackNote": "Same dual-write cutover as pgmq: drain the old broker before retiring it, revert by re-pointing producers if needed."
+    }
+  }
+]

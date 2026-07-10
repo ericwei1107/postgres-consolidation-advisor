@@ -2,11 +2,12 @@ import type { AdvisorConfig } from './config.js';
 import { composeDetector } from './detectors/compose.js';
 import { dependenciesDetector } from './detectors/dependencies.js';
 import { envDetector } from './detectors/env.js';
-import { ormDetector } from './detectors/orm.js';
+import { extractOrmModels, ormDetector } from './detectors/orm.js';
 import { mergeDetections } from './detectors/merge.js';
 import { harvestUsage } from './usage/harvester.js';
 import { classifyStores } from './classify/rules.js';
 import { classifyStoresWithGemini } from './classify/gemini.js';
+import { computeVerdicts } from './scoring/index.js';
 import type { Detection, Detector, DetectorContext } from './detectors/types.js';
 import type { AnalysisResult } from './types.js';
 
@@ -16,8 +17,8 @@ import type { AnalysisResult } from './types.js';
  *
  * Stage 2.x wires the detectors (compose/k8s, dependency manifests, env/config)
  * and the instance-identity merge (2.3). Detectors run isolated: a throw
- * becomes a warning so one failure never sinks the whole run. Usage
- * extraction, roles, and verdicts arrive in later stages.
+ * becomes a warning so one failure never sinks the whole run. SnippetGen and
+ * Reporters arrive in later stages.
  */
 export interface AnalyzeOptions {
   repoPath: string;
@@ -53,12 +54,17 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
     apiKey: process.env.GEMINI_API_KEY,
     addWarning: ctx.addWarning,
   });
+  // ormDetector already ran extractOrmModels once above; re-running it here
+  // is a bounded re-scan (not a correctness issue) in exchange for keeping
+  // the detector's own contract (Detection[], not raw OrmModel[]) unchanged.
+  const models = await extractOrmModels(ctx);
+  const verdicts = await computeVerdicts(stores, roles, usage, models, ctx);
 
   return {
     schemaVersion: 1,
     stores,
     roles,
-    verdicts: [],
+    verdicts,
     warnings,
   };
 }

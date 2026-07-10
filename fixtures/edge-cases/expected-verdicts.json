@@ -1,0 +1,21 @@
+[
+  {
+    "storeId": "kafka:broker1:9092",
+    "role": "queue",
+    "decision": "borderline",
+    "fitScore": 50,
+    "confidence": "low",
+    "thresholdComparisons": [
+      {
+        "variable": "est-peak-msgs-sec",
+        "observed": "unknown (no static signal found)",
+        "threshold": "value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec",
+        "source": "https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525",
+        "passed": false
+      }
+    ],
+    "rationale": "Borderline for kafka:broker1:9092 — no static signal resolves est-peak-msgs-sec for this repo; defaulting to Plain SQL, FOR UPDATE SKIP LOCKED pending a corpus/usage estimate or `postgres-advisor analyze --live`. Evidence: .env:3.",
+    "postgresEquivalent": "Plain SQL, FOR UPDATE SKIP LOCKED",
+    "snippetId": "skip-locked"
+  }
+]

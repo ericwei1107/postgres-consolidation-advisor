@@ -1,0 +1,71 @@
+[
+  {
+    "storeId": "mongodb:mongo",
+    "role": "document",
+    "decision": "consolidate",
+    "fitScore": 96,
+    "confidence": "medium",
+    "thresholdComparisons": [
+      {
+        "variable": "avg-doc-size-bytes",
+        "observed": "150 bytes",
+        "threshold": "value < 2,048 bytes",
+        "source": "https://dev.to/franckpachot/postgresql-jsonb-size-limits-to-prevent-toast-slicing-9e8",
+        "passed": true
+      }
+    ],
+    "rationale": "Consolidate mongodb:mongo — avg-doc-size-bytes observed 150 bytes vs value < 2,048 bytes (independent: https://dev.to/franckpachot/postgresql-jsonb-size-limits-to-prevent-toast-slicing-9e8). Evidence: app/documents.py:12.",
+    "postgresEquivalent": "JSONB column + GIN index",
+    "snippetId": "jsonb",
+    "migrationEffort": {
+      "callSites": 2,
+      "filesTouched": 1,
+      "dataMigration": "copy",
+      "rollbackNote": "Keep the source document store read-only for one release cycle; restore from its native export/backup if the JSONB cutover surfaces data issues."
+    }
+  },
+  {
+    "storeId": "pinecone:default",
+    "role": "vector",
+    "decision": "borderline",
+    "fitScore": 50,
+    "confidence": "low",
+    "thresholdComparisons": [
+      {
+        "variable": "count-vectors",
+        "observed": "unknown (no static signal found)",
+        "threshold": "value < 5,000,000 vectors | 5,000,000 <= value < 50,000,000 vectors | value >= 100,000,000 vectors",
+        "source": "https://supabase.com/blog/pgvector-vs-pinecone",
+        "passed": false
+      }
+    ],
+    "rationale": "Borderline for pinecone:default — no static signal resolves count-vectors for this repo; defaulting to pgvector (HNSW index) pending a corpus/usage estimate or `postgres-advisor analyze --live`. Evidence: app/vectors.py:14.",
+    "postgresEquivalent": "pgvector (HNSW index)",
+    "snippetId": "pgvector"
+  },
+  {
+    "storeId": "redis:redis",
+    "role": "queue",
+    "decision": "consolidate",
+    "fitScore": 92,
+    "confidence": "medium",
+    "thresholdComparisons": [
+      {
+        "variable": "est-peak-msgs-sec",
+        "observed": "1.6-160 msgs/sec",
+        "threshold": "value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec",
+        "source": "https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525",
+        "passed": true
+      }
+    ],
+    "rationale": "Consolidate redis:redis — est-peak-msgs-sec observed 1.6-160 msgs/sec vs value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec (independent: https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525). Evidence: requirements.txt:5.",
+    "postgresEquivalent": "Plain SQL, FOR UPDATE SKIP LOCKED",
+    "snippetId": "skip-locked",
+    "migrationEffort": {
+      "callSites": 1,
+      "filesTouched": 3,
+      "dataMigration": "dual-write",
+      "rollbackNote": "Same dual-write cutover as pgmq: drain the old broker before retiring it, revert by re-pointing producers if needed."
+    }
+  }
+]

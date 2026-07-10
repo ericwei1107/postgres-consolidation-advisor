@@ -647,7 +647,18 @@ outputs, and done-condition.
 
 ### Stage 5 — Fit scoring and verdicts
 
-- [ ] **5.1 — Verdict engine**
+- [x] **5.1 — Verdict engine** ✅ 2026-07-09 (2 deviations from this task's
+  own shorthand golden table, confirmed with the user at implementation
+  time — both existing rules elsewhere in PLAN.md, not new ones: (a)
+  python-service's mongo doc is ~150 bytes with one $inc counter, well under
+  the ~2KB TOAST line §1.4 itself requires for a keep verdict ("on multi-KB
+  docs") — verdicts **consolidate**, not keep, per the fully-specified rule
+  rather than this task's compressed sketch; (b) python-service's pinecone
+  store has no vector-count signal (only embedding dims) — verdicts
+  **borderline/low** per §0's general "unobservable variable → borderline"
+  rule, naming pgvector as the tentative `postgresEquivalent` rather than
+  overclaiming a `consolidate` decision. See `src/scoring/verdict.ts`'s
+  top-of-file comment for the full decision order.)
   - Inputs/dependencies: 4.1–4.3 complete.
   - Expected output: `src/scoring/verdict.ts` — pure function
     `(StoreRole, signals, rules) → Verdict`. Logic, fixed here: (1) qualitative

@@ -32,3 +32,4 @@ export {
   type SignalRange,
   type Observability,
 } from './signals/index.js';
+export { computeVerdict, computeVerdicts, buildVerdictRules, collectSignals, type VerdictRules } from './scoring/index.js';
