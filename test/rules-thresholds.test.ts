@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAPPED_CATEGORIES } from '../src/rules.js';
 import {
+  applyThresholdOverride,
   loadConstants,
   loadScoringConfig,
   loadThresholds,
@@ -126,5 +127,26 @@ describe('rules/thresholds.yaml (done-conditions for 4.2)', () => {
 
   it('caches the parsed result across calls (same Map instance)', () => {
     expect(loadThresholds()).toBe(loadThresholds());
+  });
+
+  it('threshold_overrides drags the contiguous band boundary along (no overlap after override)', () => {
+    // queue bands: consolidate <1000 | borderline 1000-10000 | keep >=10000.
+    // Overriding the consolidate line to 2000 must also move the borderline
+    // band's min to 2000, or the report renders "value < 2,000" next to
+    // "1,000 <= value < 10,000" — overlapping, contradictory ranges.
+    const rule = thresholdById('queue.est-peak-msgs-sec');
+    expect(rule?.comparison).toBe('bands');
+    const { rule: overridden, applied } = applyThresholdOverride(rule as ThresholdRule, 2000);
+    expect(applied).toBe(true);
+    expect(overridden.overridden).toBe(true);
+    if (overridden.comparison !== 'bands') throw new Error('expected bands');
+    expect(overridden.bands[0]).toMatchObject({ decision: 'consolidate', max: 2000 });
+    expect(overridden.bands[1]).toMatchObject({ decision: 'borderline', min: 2000, max: 10000 });
+    expect(overridden.bands[2]).toMatchObject({ decision: 'keep', min: 10000 });
+    // The loaded rule itself is untouched (override returns a copy).
+    const original = thresholdById('queue.est-peak-msgs-sec');
+    if (original?.comparison !== 'bands') throw new Error('expected bands');
+    expect(original.bands[0]?.max).toBe(1000);
+    expect(original.bands[1]?.min).toBe(1000);
   });
 });

@@ -626,13 +626,26 @@ export function applyThresholdOverride(
   }
   if (rule.comparison === 'bands' && rule.bands.length > 0) {
     const [first, ...rest] = rule.bands as [ThresholdBand, ...ThresholdBand[]];
-    const patched: ThresholdBand =
-      first.max !== undefined
-        ? { ...first, max: overrideValue }
-        : first.min !== undefined
-          ? { ...first, min: overrideValue }
-          : first;
-    return { rule: { ...rule, bands: [patched, ...rest], overridden: true }, applied: true, unsupported: false };
+    if (first.max !== undefined) {
+      // Moving the first band's upper boundary must drag any band that was
+      // contiguous with it (min === old max) along, or the bands overlap and
+      // the report renders contradictory ranges.
+      const oldMax = first.max;
+      const shifted = rest.map((b) => (b.min === oldMax ? { ...b, min: overrideValue } : b));
+      return {
+        rule: { ...rule, bands: [{ ...first, max: overrideValue }, ...shifted], overridden: true },
+        applied: true,
+        unsupported: false,
+      };
+    }
+    if (first.min !== undefined) {
+      return {
+        rule: { ...rule, bands: [{ ...first, min: overrideValue }, ...rest], overridden: true },
+        applied: true,
+        unsupported: false,
+      };
+    }
+    return { rule: { ...rule, overridden: true }, applied: true, unsupported: false };
   }
   return { rule, applied: false, unsupported: true };
 }
