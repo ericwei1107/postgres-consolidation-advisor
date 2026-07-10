@@ -357,7 +357,7 @@ outputs, and done-condition.
 
 ### Stage 1 — Scaffold, core types, fixture repos
 
-- [x] **1.1 — Repo scaffold and CLI skeleton** ✅ 2026-07-08
+- [x] **1.1 — Repo scaffold and CLI skeleton** `[Importance: ULTRA]` ✅ 2026-07-08
   - Inputs/dependencies: none (first task).
   - Expected output: npm package `postgres-advisor` with `tsup` build, `vitest`
     configured, `commander`-based CLI exposing `analyze [path]` (path defaults to
@@ -392,7 +392,7 @@ outputs, and done-condition.
     emits ESM + CJS; npm registry name `postgres-advisor` availability verified
     (pick fallback name now if taken).
 
-- [x] **1.2 — Fixture repos (the test bed everything else validates against)** ✅ 2026-07-08
+- [x] **1.2 — Fixture repos (the test bed everything else validates against)** `[Importance: HIGH]` ✅ 2026-07-08
   - Inputs/dependencies: 1.1.
   - Expected output: `fixtures/` with three miniature but realistic apps, committed
     as plain files (no node_modules): **(a)** `node-monolith` — Express +
@@ -418,7 +418,7 @@ outputs, and done-condition.
 
 ### Stage 2 — Detection engine
 
-- [x] **2.1 — docker-compose / k8s manifest detector** ✅ 2026-07-09
+- [x] **2.1 — docker-compose / k8s manifest detector** `[Importance: ULTRA]` ✅ 2026-07-09
   - Inputs/dependencies: 1.1 types, 1.2 fixtures; `yaml` package.
   - Expected output: `src/detectors/compose.ts` — parses any `docker-compose*.yml`,
     `compose.y?ml` (modern default names), and `k8s/**/*.yaml`; if `Chart.yaml`
@@ -441,7 +441,7 @@ outputs, and done-condition.
     caps (billion-laughs hardening); file walking never follows symlinks and
     always ignores node_modules/vendor/.git/dist/build by default.
 
-- [x] **2.2 — Dependency-manifest detector** ✅ 2026-07-09
+- [x] **2.2 — Dependency-manifest detector** `[Importance: HIGH]` ✅ 2026-07-09
   - Inputs/dependencies: 2.1's `rules/products.yaml` (extend it with a
     `client_libraries` map: e.g. `ioredis|redis|node-redis → redis`,
     `bullmq|bee-queue → redis(queue)`, `@elastic/elasticsearch`, `mongoose|pymongo|
@@ -458,7 +458,7 @@ outputs, and done-condition.
   - Done-condition: unit tests vs fixtures pass, including the `edge-cases` fixture's
     commented-out dependency producing NO detection.
 
-- [x] **2.3 — Env/config detector** ✅ 2026-07-09
+- [x] **2.3 — Env/config detector** `[Importance: HIGH]` ✅ 2026-07-09
   - Inputs/dependencies: 2.2.
   - Expected output: `src/detectors/env.ts` — scans `.env*`, `config/**`,
     `settings.py`, `*.config.{js,ts}` for URL-shaped values and known var names
@@ -481,7 +481,7 @@ outputs, and done-condition.
     with a single env Evidence; `node-monolith`'s redis is ONE store with ≥2
     evidence kinds; dedup logic unit-tested.
 
-- [x] **2.4 — ORM-schema detector** ✅ 2026-07-09
+- [x] **2.4 — ORM-schema detector** `[Importance: MEDIUM]` ✅ 2026-07-09
   - Inputs/dependencies: 2.3.
   - Expected output: `src/detectors/orm.ts` — parses Prisma `schema.prisma`
     (datasource block + model shapes), Mongoose schema files (field counts, types,
@@ -493,7 +493,7 @@ outputs, and done-condition.
 
 ### Stage 3 — Usage extraction and role classification
 
-- [x] **3.1 — Call-site harvester** ✅ 2026-07-09
+- [x] **3.1 — Call-site harvester** `[Importance: ULTRA]` ✅ 2026-07-09
   - Inputs/dependencies: Stage 2 complete (needs `DetectedStore[]` to know what to
     look for).
   - Expected output: `src/usage/harvester.ts` — for each detected store, scans
@@ -529,7 +529,7 @@ outputs, and done-condition.
     a two-Redis-instance fixture (redis-cache + redis-broker) attributes call
     sites to the correct instance.
 
-- [x] **3.2 — Rule-based role classifier** ✅ 2026-07-09
+- [x] **3.2 — Rule-based role classifier** `[Importance: ULTRA]` ✅ 2026-07-09
   - Inputs/dependencies: 3.1.
   - Expected output: `src/classify/rules.ts` + `rules/roles.yaml` — deterministic
     mapping: command-mix → roles with confidence. E.g. ≥90% of redis hits in
@@ -541,7 +541,7 @@ outputs, and done-condition.
     = cache+queue, python-service redis = queue via celery broker); table-driven
     unit tests for ≥10 command-mix scenarios.
 
-- [x] **3.3 — Gemini disambiguation pass** ✅ 2026-07-09
+- [x] **3.3 — Gemini disambiguation pass** `[Importance: MEDIUM]` ✅ 2026-07-09
   - Inputs/dependencies: 3.2; `@google/genai`; env `GEMINI_API_KEY`.
   - Expected output: `src/classify/gemini.ts` — ONLY invoked for `unknown`-role
     stores or rule confidence `low`. Prompt: store product + up to 30 UsageEvidence
@@ -557,7 +557,7 @@ outputs, and done-condition.
   - Done-condition: mocked-SDK unit tests (valid JSON, invalid JSON→retry→fallback,
     API error→fallback); one live integration test behind `RUN_LIVE_TESTS=1`.
 
-- [x] **3.4 — Reality checkpoint (real repos, before the verdict engine exists)** ✅ 2026-07-09
+- [x] **3.4 — Reality checkpoint (real repos, before the verdict engine exists)** `[Importance: HIGH]` ✅ 2026-07-09
   - Inputs/dependencies: 3.1–3.3.
   - Expected output: run detection + role classification (NOT verdicts — they
     don't exist yet) against 2 cloned real OSS apps with docker-compose files
@@ -572,7 +572,7 @@ outputs, and done-condition.
 
 ### Stage 4 — Mapping table and threshold rules as data
 
-- [x] **4.1 — Postgres-equivalent mapping table** ✅ 2026-07-09
+- [x] **4.1 — Postgres-equivalent mapping table** `[Importance: ULTRA]` ✅ 2026-07-09
   - Inputs/dependencies: types from 1.1 only.
   - Expected output: `rules/mappings.yaml` — for each StoreCategory, ordered
     Postgres-native options with tradeoffs, exactly the §Project table: cache →
@@ -587,7 +587,7 @@ outputs, and done-condition.
   - Done-condition: yaml validates on load; a table-driven test asserts every
     StoreCategory (except relational/unknown) has ≥1 mapping with all fields.
 
-- [x] **4.2 — Threshold rules file (§1 encoded as data)** ✅ 2026-07-09
+- [x] **4.2 — Threshold rules file (§1 encoded as data)** `[Importance: ULTRA]` ✅ 2026-07-09
   - Inputs/dependencies: 4.1 loader.
   - Expected output: `rules/thresholds.yaml` — every threshold from §1 verbatim:
     stable `id` (format `<category>.<variable-slug>`, e.g.
@@ -625,7 +625,7 @@ outputs, and done-condition.
     `explain queue.est-peak-msgs-sec` and `explain --list` golden-file tests;
     override test shows the overridden annotation in markdown output.
 
-- [x] **4.3 — Signal extractors (the estimation model)** ✅ 2026-07-09
+- [x] **4.3 — Signal extractors (the estimation model)** `[Importance: HIGH]` ✅ 2026-07-09
   - Inputs/dependencies: 4.2, Stage 2+3 outputs.
   - Expected output: `src/signals/*.ts`, one module per category needing
     estimation: `queueThroughput` (replicas × concurrency from compose/framework
@@ -647,7 +647,7 @@ outputs, and done-condition.
 
 ### Stage 5 — Fit scoring and verdicts
 
-- [x] **5.1 — Verdict engine** ✅ 2026-07-09 (2 deviations from this task's
+- [x] **5.1 — Verdict engine** `[Importance: ULTRA]` ✅ 2026-07-09 (2 deviations from this task's
   own shorthand golden table, confirmed with the user at implementation
   time — both existing rules elsewhere in PLAN.md, not new ones: (a)
   python-service's mongo doc is ~150 bytes with one $inc counter, well under
@@ -716,7 +716,7 @@ outputs, and done-condition.
     on Alpine/ARM/Node bumps — and a security control depends on this module
     loading); JS/TS snippets pass `tsc --noEmit`.
 
-- [ ] **6.2 — Gemini snippet tailoring**
+- [ ] **6.2 — Gemini snippet tailoring** `[Importance: LOW]`
   - Inputs/dependencies: 6.1, 3.3's Gemini wrapper.
   - Expected output: `src/snippets/tailor.ts` — takes rendered template + the
     store's ORM field summary, asks Gemini to adapt names/types/columns (strict
@@ -739,7 +739,7 @@ outputs, and done-condition.
 
 ### Stage 7 — Reports
 
-- [ ] **7.0 — Terminal output contract (stdout is the first surface)**
+- [ ] **7.0 — Terminal output contract (stdout is the first surface)** `[Importance: HIGH]`
   - Inputs/dependencies: Stage 5 verdicts.
   - Expected output: `src/report/terminal.ts`. Default `analyze` stdout: phased
     progress lines on TTY only ("Scanning… / 4 stores detected / Classifying
@@ -760,7 +760,7 @@ outputs, and done-condition.
   - Done-condition: snapshot tests for TTY and piped output on node-monolith +
     empty fixtures; a test asserts no ANSI codes when stdout is not a TTY.
 
-- [ ] **7.1 — Markdown + JSON reporters**
+- [ ] **7.1 — Markdown + JSON reporters** `[Importance: ULTRA]`
   - Inputs/dependencies: Stage 5 verdicts, Stage 6 snippets.
   - Expected output: `src/report/markdown.ts`, `src/report/json.ts`. Markdown
     layout, fixed: title + one-paragraph summary ("N stores, K consolidatable, M
@@ -796,7 +796,7 @@ outputs, and done-condition.
     in CI; JSON output re-parses through the zod schema; empty-fixture golden shows
     the win-state copy; a warnings-section golden exists (malformed-yaml fixture).
 
-- [ ] **7.2 — HTML report (optional web view)**
+- [ ] **7.2 — HTML report (optional web view)** `[Importance: LOW]`
   - Inputs/dependencies: 7.1 JSON output.
   - Expected output: `src/report/html.ts` — single self-contained HTML file
     (inline CSS/JS, no CDN), rendering the JSON. Design spec (APP-UI rules, not
@@ -820,7 +820,7 @@ outputs, and done-condition.
 
 ### Stage 8 — Live-workload mode (stretch, but planned concretely)
 
-- [ ] **8.1 — pg_stat_statements collector**
+- [ ] **8.1 — pg_stat_statements collector** `[Importance: MEDIUM]`
   - Inputs/dependencies: `pg` package; a Postgres with `pg_stat_statements` enabled
     (docker-compose file for tests: `postgres:16` + `shared_preload_libraries`).
   - Expected output: `src/live/collector.ts` + CLI flag `--live <conn-string>`.
@@ -835,7 +835,7 @@ outputs, and done-condition.
     assertion a designed-in flake); the exact-rate (±20%) assertion runs in a
     local-only tagged test.
 
-- [ ] **8.2 — Live signals override static estimates**
+- [ ] **8.2 — Live signals override static estimates** `[Importance: MEDIUM]`
   - Inputs/dependencies: 8.1, 5.1.
   - Expected output: signal-merge layer — live measurements replace estimated
     ranges (observability upgraded to `static`-equivalent → confidence can reach
@@ -849,7 +849,7 @@ outputs, and done-condition.
 
 ### Stage 9 — Packaging, CI guard, docs
 
-- [ ] **9.1 — npm packaging + GitHub Action**
+- [ ] **9.1 — npm packaging + GitHub Action** `[Importance: ULTRA]`
   - Inputs/dependencies: all prior stages.
   - Expected output: publishable package (`bin: postgres-advisor`), plus
     `action.yml` + `src/action.ts`: runs analyze on the PR's checkout, diffs
@@ -901,7 +901,7 @@ outputs, and done-condition.
     container; action tested with `act` or a workflow-level integration test on
     the fixture repos (new-store PR → failing check with verdict comment).
 
-- [ ] **9.2 — README, methodology doc, end-to-end validation on real OSS repos**
+- [ ] **9.2 — README, methodology doc, end-to-end validation on real OSS repos** `[Importance: HIGH]`
   - Inputs/dependencies: 9.1.
   - Expected output: README (first five lines = the npx one-liner + what you
     get; install, quickstart, sample report inlined, `--no-ai` and live-mode
@@ -924,7 +924,7 @@ outputs, and done-condition.
     stating whether each verdict looks defensible (this is the plan's built-in
     verification step).
 
-- [ ] **9.3 — Benchmark reproduction harness (the vendor-neutrality moat)**
+- [ ] **9.3 — Benchmark reproduction harness (the vendor-neutrality moat)** `[Importance: MEDIUM]`
   - Inputs/dependencies: 4.2 (thresholds with source_grade), docker.
   - Expected output: `docs/benchmarks/` + committed scripts reproducing the two
     load-bearing thresholds: SKIP LOCKED queue throughput and unlogged-table
