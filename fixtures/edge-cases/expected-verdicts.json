@@ -17,5 +17,24 @@
     "rationale": "Borderline for kafka:broker1:9092 — no static signal resolves est-peak-msgs-sec for this repo; defaulting to Plain SQL, FOR UPDATE SKIP LOCKED pending a corpus/usage estimate or `postgres-advisor analyze --live`. Evidence: .env:3.",
     "postgresEquivalent": "Plain SQL, FOR UPDATE SKIP LOCKED",
     "snippetId": "skip-locked"
+  },
+  {
+    "storeId": "memcached:memcached",
+    "role": "cache",
+    "decision": "borderline",
+    "fitScore": 50,
+    "confidence": "low",
+    "thresholdComparisons": [
+      {
+        "variable": "est-ops-per-sec",
+        "observed": "unknown (no static signal found)",
+        "threshold": "value < 5,000 ops/sec",
+        "source": "https://dev.to/raphaeldelio/can-postgres-replace-redis-as-a-cache-2ne1",
+        "passed": false
+      }
+    ],
+    "rationale": "Borderline for memcached:memcached — no static signal resolves est-ops-per-sec for this repo; defaulting to UNLOGGED table + pg_cron TTL sweep pending a corpus/usage estimate or `postgres-advisor analyze --live`. Evidence: docker-compose.yml:5.",
+    "postgresEquivalent": "UNLOGGED table + pg_cron TTL sweep",
+    "snippetId": "unlogged-table"
   }
 ]

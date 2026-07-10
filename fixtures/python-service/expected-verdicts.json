@@ -14,7 +14,7 @@
         "passed": true
       }
     ],
-    "rationale": "Consolidate mongodb:mongo — avg-doc-size-bytes observed 150 bytes vs value < 2,048 bytes (independent: https://dev.to/franckpachot/postgresql-jsonb-size-limits-to-prevent-toast-slicing-9e8). Evidence: app/documents.py:12.",
+    "rationale": "Consolidate mongodb:mongo — avg-doc-size-bytes observed 150 bytes is under value < 2,048 bytes (independent: https://dev.to/franckpachot/postgresql-jsonb-size-limits-to-prevent-toast-slicing-9e8). Evidence: app/documents.py:12. 2 call sites across 1 file to rewrite; data migration: copy; rollback: Keep the source document store read-only for one release cycle; restore from its native export/backup if the JSONB cutover surfaces data issues.",
     "postgresEquivalent": "JSONB column + GIN index",
     "snippetId": "jsonb",
     "migrationEffort": {
@@ -58,7 +58,7 @@
         "passed": true
       }
     ],
-    "rationale": "Consolidate redis:redis — est-peak-msgs-sec observed 1.6-160 msgs/sec vs value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec (independent: https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525). Evidence: requirements.txt:5.",
+    "rationale": "Consolidate redis:redis — est-peak-msgs-sec observed 1.6-160 msgs/sec is under value < 1,000 msgs/sec | 1,000 <= value < 10,000 msgs/sec | value >= 10,000 msgs/sec (independent: https://medium.com/@the_atomic_architect/postgresql-replaced-my-message-queue-and-taught-me-skip-locked-along-the-way-87d59e5b9525). Evidence: requirements.txt:5. 1 call site across 3 files to rewrite; data migration: dual-write; rollback: Same dual-write cutover as pgmq: drain the old broker before retiring it, revert by re-pointing producers if needed.",
     "postgresEquivalent": "Plain SQL, FOR UPDATE SKIP LOCKED",
     "snippetId": "skip-locked",
     "migrationEffort": {
