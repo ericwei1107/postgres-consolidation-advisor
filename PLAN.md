@@ -678,7 +678,16 @@ outputs, and done-condition.
     pinecone→consolidate-to-pgvector; edge-cases: kafka→borderline/low [no
     signals]). Any rationale string must mention at least one Evidence file path.
 
-- [ ] **5.2 — "Keep it" verdict quality pass**
+- [x] **5.2 — "Keep it" verdict quality pass** `[Importance: MEDIUM]` ✅ 2026-07-10
+  (folded in 3 TODOS.md items explicitly tied to this stage — see TODOS.md's
+  "Deferred from mid-implementation lint" section for the resolution notes —
+  plus 2 small honest-limitation gates that had signals available cheaply:
+  `document.change-streams-sharding-gate` now fires off the `.watch(` call-site
+  evidence the harvester already collects; `search.log-analytics-gate` got a
+  new `log-analytics-signal-count` signal in `searchFeatures.ts` detecting the
+  daily-index naming pattern. Both are partial-coverage of their gate's full
+  documented signal set, same honest-limitation policy as every other
+  not-yet-wired gate in `verdict.ts`'s `GATE_CHECKERS` comment.)
   - Inputs/dependencies: 5.1.
   - Expected output: rationale templating in `src/scoring/rationale.ts` so every
     `keep` reads as: "Keep <store> — <observed signal> <exceeds/trips> <threshold>
@@ -689,14 +698,23 @@ outputs, and done-condition.
     Failure-mode strings per category live in `rules/thresholds.yaml`
     (`failure_mode` field): e.g. queue → "consumer transactions at this rate cause
     MVCC bloat and WAL pile-up"; document → "each $inc rewrites the full TOASTed
-    document plus indexes."
+    document plus indexes." Deviation: `failure_mode` strings are written as
+    standalone declarative sentences, not verb-phrase continuations of "would" —
+    forcing literal "<equivalent> would <failure_mode>" breaks grammar (e.g.
+    "would consumer transactions at this rate cause..."). Rendered instead as
+    "Postgres alternative <equivalent> would still pay this cost: <failure_mode>.",
+    which preserves the template's intent (name the alternative, connect it to
+    the specific cost) without the grammar break.
   - Done-condition: snapshot tests of rendered rationales for every category's
-    `keep` path; no rationale contains the words "probably", "likely", or "vibe" —
-    asserted in test.
+    `keep` path (`test/rationale.test.ts`) — 7 reachable via real
+    gates/thresholds, 1 (geospatial) tested against the template directly since
+    its gate has no signal support yet; no rationale contains the words
+    "probably", "likely", or "vibe" — asserted across every fixture's verdicts
+    and the committed golden files, not just the synthetic keep cases.
 
 ### Stage 6 — Migration snippets
 
-- [ ] **6.1 — Snippet template library**
+- [ ] **6.1 — Snippet template library** `[Importance: MEDIUM]`
   - Inputs/dependencies: 4.1 mappings; Handlebars (`handlebars` pkg — add it, note
     in Open Questions).
   - Expected output: `templates/*.hbs`, one per mapping option, minimum set:

@@ -35,19 +35,26 @@ record): call-site secret redaction, threshold_overrides in verdicts,
 replacement, the roles.yaml `command_mix` partition, traversalShape comment
 stripping, and the `--write-lock` error copy.
 
-- [ ] **Orphaned signals**: `embedding-dims` (vectorScale) and `dbt-model-count`
-  (olapPresenceSignals) are extracted but nothing in the verdict engine consumes
-  them — vector RAM-math and an OLAP presence axis need threshold/gate design.
-  Revisit: Stage 5.2, where verdict quality is the whole task.
-- [ ] **Role confidence doesn't feed verdict confidence** — a low-confidence
-  role classification can still yield a high-confidence verdict (verdict
-  confidence derives only from signal observability). Decide the combination
-  rule in 5.2 alongside the fitScore weights (`weight`/`default_weight` are
-  loaded but unused for the same reason).
-- [ ] **roles.yaml has no fixed_role for memcached/influxdb/clickhouse/neo4j** —
-  single-category products stay `unknown` under `--no-ai` and get no verdict.
-  Adding fixed_role entries is one line each but changes fixture goldens;
-  do it with 5.2's golden refresh.
+- [x] **Orphaned signals** — RESOLVED in 5.2: `embedding-dims` now drives an
+  HNSW RAM-math note (`vectorRamNote`, PLAN.md §1.5) rendered whenever a
+  `count-vectors` band comparison fires; `dbt-model-count` now surfaces as a
+  presence-signal note (`olapPresenceNote`, §1.7) on the OLAP total-axis-absence
+  path, the only place it was ever meant to matter. Both render via
+  `RationaleContext.note` in `src/scoring/rationale.ts`.
+- [x] **Role confidence doesn't feed verdict confidence** — RESOLVED in 5.2:
+  `capByRoleConfidence` caps verdict confidence at `low` when the role
+  classification itself was `low` (a `medium`/`high` role confidence is left
+  alone — it already means "we're sure this is the role," so a permanently-
+  unresolvable supporting axis can still earn `high`, PLAN.md §1.2/§1.3). No
+  existing fixture had a `low`-confidence non-`unknown` role, so this was a
+  no-op on all goldens; `weight`/`default_weight` are now wired into fitScore's
+  band-distance calculation (`weightedDistance`) — also a no-op today since
+  every threshold's weight equals `default_weight`.
+- [x] **roles.yaml has no fixed_role for memcached/influxdb/clickhouse/neo4j** —
+  RESOLVED in 5.2: all four now have `fixed_role` entries. This surfaced a new,
+  correct case in the `edge-cases` golden (a compose-detected-but-unused
+  `memcached` store now gets a `borderline`/`low` verdict instead of being
+  silently dropped as `unknown`) — folded into the 5.2 golden refresh.
 - [ ] **Evidence line attribution is first-match-in-file** — compose.ts
   (`replicas:`, env keys) and queueThroughput.ts point at the first matching
   line in the file, which can be the wrong service's line in multi-service
