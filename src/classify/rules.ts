@@ -16,7 +16,7 @@ function hasLibraryEvidence(store: DetectedStore, libraries: string[]): boolean 
   );
 }
 
-function classifyRedis(store: DetectedStore, usage: UsageEvidence[], rule: RoleRule): StoreRole[] {
+function classifyCacheQueueMix(store: DetectedStore, usage: UsageEvidence[], rule: RoleRule): StoreRole[] {
   const cache = rule.cache;
   const queue = rule.queue;
   if (!cache || !queue) return [role(store.id, 'unknown', 'low', store.evidence)];
@@ -60,7 +60,10 @@ export function classifyStores(stores: DetectedStore[], usage: UsageEvidence[]):
     const storeUsage = byStore.get(store.id) ?? [];
     const rule = rules.get(store.product);
     if (!rule) return [role(store.id, 'unknown', 'low', store.evidence)];
-    if (rule.product === 'redis') return classifyRedis(store, storeUsage, rule);
+    // Dispatch on the rule's shape, not the product name: any product whose
+    // rules define both a cache command set and queue libraries (today:
+    // redis) gets the command-mix classification.
+    if (rule.cache && rule.queue) return classifyCacheQueueMix(store, storeUsage, rule);
     if (rule.fixedRole) {
       const evidence = storeUsage.length > 0 ? evidenceFromUsage(storeUsage) : store.evidence;
       return [role(store.id, rule.fixedRole, 'high', evidence)];
