@@ -69,5 +69,6 @@ stripping, and the `--write-lock` error copy.
 - [ ] **redact.ts doesn't scrub query-string secrets** (`?api_key=...` in an
   otherwise credential-free URL). Extend when the reporters land (7.1) so the
   rule is tested against rendered output.
-- [ ] **package.json `files` lists `templates/`** which doesn't exist until
-  Stage 6.1 — harmless (npm skips missing entries), self-heals in 6.1.
+- [x] **package.json `files` lists `templates/`** — RESOLVED in 6.1: the
+  directory now exists (9 templates) and `npm pack --dry-run` confirms it
+  ships.

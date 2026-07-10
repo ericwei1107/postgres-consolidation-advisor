@@ -714,7 +714,28 @@ outputs, and done-condition.
 
 ### Stage 6 — Migration snippets
 
-- [ ] **6.1 — Snippet template library** `[Importance: MEDIUM]`
+- [x] **6.1 — Snippet template library** `[Importance: MEDIUM]` ✅ 2026-07-10
+  (deviations, all forced by concrete build/security failures hit while
+  implementing, not style preference: (a) filenames use ASCII `-to-` in place
+  of the arrow glyph — `redis-cache-to-unlogged-table.sql.hbs` etc. — since a
+  literal `→` in a shipped package filename is a real cross-filesystem risk
+  this task's own prose didn't need to take on; (b) the actual npm package is
+  `libpg-query-wasm` (the WASM-specific one this task requires), not
+  `libpg-query` (native bindings, the thing being explicitly avoided) —
+  installing it pulled in `protobufjs@7.2.6` transitively, which carries a
+  **critical** RCE advisory (GHSA-xq3m-2v4x-88gg); added a `package.json`
+  `overrides` pin to `^7.6.5` (already proven compatible in this tree via
+  `@google/genai`'s own dependency) and verified `parse()` still behaves
+  correctly against it before proceeding; (c) `libpg-query-wasm` is pure ESM
+  with internal top-level await — a static import compiles to a top-level
+  `require()` in tsup's CJS output, which threw `ERR_REQUIRE_ASYNC_MODULE` on
+  `require('postgres-advisor')` for every CJS consumer, not just ones calling
+  the validator. Fixed by making `validateSql` async and loading the parser
+  via a cached dynamic `import()`; verified both the ESM and CJS `dist/`
+  outputs load and validate correctly post-fix, not just the dev-mode `tsx`
+  path. Only the 9 templates in the "minimum set" below were built — one per
+  category's primary/default mapping option, not every option in
+  `rules/mappings.yaml`.)
   - Inputs/dependencies: 4.1 mappings; Handlebars (`handlebars` pkg — add it, note
     in Open Questions).
   - Expected output: `templates/*.hbs`, one per mapping option, minimum set:
@@ -732,7 +753,11 @@ outputs, and done-condition.
     unresolved `{{...}}`; rendered SQL passes `pg_query`-based syntax validation.
     Use the **WASM build** of libpg-query (native bindings brick `npx` installs
     on Alpine/ARM/Node bumps — and a security control depends on this module
-    loading); JS/TS snippets pass `tsc --noEmit`.
+    loading); JS/TS snippets pass `tsc --noEmit`. Verified: `test/snippets-templates.test.ts`
+    (12 tests) — every template renders and validates, mongo's context is
+    pulled from python-service's real `extractOrmModels` FieldSummary, vector
+    dims come from the real `embedding_dims` table, and the TS template is
+    typechecked in isolation via a real `tsc --noEmit` subprocess.
 
 - [ ] **6.2 — Gemini snippet tailoring** `[Importance: LOW]`
   - Inputs/dependencies: 6.1, 3.3's Gemini wrapper.
@@ -1001,8 +1026,11 @@ Every judgment call and unverified number, for review before implementation:
 - Gemini classification uses a capability-ordered model chain (3.1 Pro Preview →
   3.5 Flash → 3.1 Flash-Lite). Only rate-limited requests downgrade; override the
   chain with `POSTGRES_ADVISOR_GEMINI_MODELS` (comma-separated).
-- `handlebars` added to the fixed dependency set in 6.1; `libpg-query` for SQL
-  validation; `happy-dom` for 7.2 tests.
+- `handlebars` added to the fixed dependency set in 6.1; `libpg-query-wasm` (the
+  WASM-specific package, not `libpg-query`) for SQL validation — ships with a
+  `package.json` `overrides: { protobufjs: "^7.6.5" }` pin, since its own
+  transitive `protobufjs@7.2.6` carries a critical RCE advisory; `happy-dom`
+  for 7.2 tests.
 - Per-(store,role) verdicts mean one physical Redis can yield "consolidate the
   cache role, keep the pub/sub role" — arguably the honest answer, but it makes the
   headline count ("K consolidatable") fuzzier.
