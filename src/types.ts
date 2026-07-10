@@ -69,11 +69,17 @@ export const EvidenceSchema = z.object({
 }) satisfies z.ZodType<Evidence>;
 
 export interface DetectedStore {
-  /** Stable content hash of (product + normalized instance identity) — PLAN.md 9.1. */
+  /**
+   * `${product}:${instance-label}` where the label is the compose service
+   * name, `host[:port]`, or `default` (PLAN.md 2.3 identity rules). The 9.1
+   * lockfile derives its stable content hash from this id + evidence.
+   */
   id: string;
   product: string;
   category: StoreCategory[];
   evidence: Evidence[];
+  /** Matched by `.postgres-advisor.yaml` `suppress:` — stays in the inventory, gets no verdict. */
+  suppressed?: boolean;
 }
 
 export const DetectedStoreSchema = z.object({
@@ -81,6 +87,7 @@ export const DetectedStoreSchema = z.object({
   product: z.string(),
   category: z.array(StoreCategorySchema),
   evidence: z.array(EvidenceSchema),
+  suppressed: z.boolean().optional(),
 }) satisfies z.ZodType<DetectedStore>;
 
 export type Confidence = 'high' | 'medium' | 'low';

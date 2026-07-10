@@ -191,6 +191,12 @@ const RolesFileSchema = z.object({
           commands: z.array(z.string()).min(1),
         })
         .optional(),
+      command_mix: z
+        .object({
+          plain_kv: z.array(z.string()),
+          native_structure: z.array(z.string()),
+        })
+        .optional(),
     }),
   ),
 });
@@ -221,6 +227,8 @@ export interface RoleRule {
   fixedRole?: StoreCategory;
   cache?: { commands: string[]; minShare: number; mixedConfidence: 'high' | 'medium' | 'low' };
   queue?: { libraries: string[]; commands: string[] };
+  /** Partition for the cacheCommandMix signal: plain KV vs Redis-native structures (PLAN.md §1.2). */
+  commandMix?: { plainKv: Set<string>; nativeStructure: Set<string> };
 }
 
 /** A Postgres-native option for consolidating one StoreCategory — PLAN.md 4.1. */
@@ -324,16 +332,23 @@ export function loadEnvVars(): Map<string, string> {
   return cachedEnvVars;
 }
 
+let cachedUrlSchemes: Map<string, string> | undefined;
+
 /** URL scheme → product for env/config values, keyed lowercase (PLAN.md 2.3). */
 export function loadUrlSchemes(): Map<string, string> {
-  return new Map(
+  // Cached like the other loaders — the env detector consults this per LINE.
+  cachedUrlSchemes ??= new Map(
     Object.entries(loadProductsFile().url_schemes).map(([scheme, product]) => [scheme.toLowerCase(), product]),
   );
+  return cachedUrlSchemes;
 }
+
+let cachedEmbeddingDims: Map<string, number> | undefined;
 
 /** Embedding-model name → dimensionality, for the vectorScale signal (PLAN.md 4.3). */
 export function loadEmbeddingDims(): Map<string, number> {
-  return new Map(Object.entries(loadProductsFile().embedding_dims));
+  cachedEmbeddingDims ??= new Map(Object.entries(loadProductsFile().embedding_dims));
+  return cachedEmbeddingDims;
 }
 
 let cachedCallPatterns: CallPatternRule[] | undefined;
@@ -418,6 +433,14 @@ export function loadRoleRules(): Map<string, RoleRule> {
               queue: {
                 libraries: rule.queue.libraries.map((library) => library.toLowerCase()),
                 commands: rule.queue.commands.map((command) => command.toLowerCase()),
+              },
+            }
+          : {}),
+        ...(rule.command_mix
+          ? {
+              commandMix: {
+                plainKv: new Set(rule.command_mix.plain_kv.map((c) => c.toLowerCase())),
+                nativeStructure: new Set(rule.command_mix.native_structure.map((c) => c.toLowerCase())),
               },
             }
           : {}),
@@ -514,6 +537,8 @@ interface ThresholdCommon {
   assumptionId?: string;
   failureMode?: string;
   note?: string;
+  /** Set by applyThresholdOverride — the cited source no longer applies. */
+  overridden?: boolean;
 }
 
 /** One threshold from PLAN.md §1, encoded as data — PLAN.md 4.2. */
@@ -649,6 +674,40 @@ export function loadThresholds(): Map<string, ThresholdRule> {
   }
   cachedThresholds = map;
   return cachedThresholds;
+}
+
+export interface ThresholdOverrideOutcome {
+  rule: ThresholdRule;
+  applied: boolean;
+  unsupported: boolean;
+}
+
+/**
+ * Applies a `.postgres-advisor.yaml` `threshold_overrides` entry. The single
+ * override number replaces the threshold's headline numeric value: for a
+ * `bands` comparison that's the first band's boundary (the number PLAN.md §1
+ * states in prose, e.g. queue's "< 1,000 msgs/sec"); for `reference` it's the
+ * cited figure itself. `gate` thresholds have no numeric value to override.
+ */
+export function applyThresholdOverride(
+  rule: ThresholdRule,
+  overrideValue: number | undefined,
+): ThresholdOverrideOutcome {
+  if (overrideValue === undefined) return { rule, applied: false, unsupported: false };
+  if (rule.comparison === 'reference') {
+    return { rule: { ...rule, value: overrideValue, overridden: true }, applied: true, unsupported: false };
+  }
+  if (rule.comparison === 'bands' && rule.bands.length > 0) {
+    const [first, ...rest] = rule.bands as [ThresholdBand, ...ThresholdBand[]];
+    const patched: ThresholdBand =
+      first.max !== undefined
+        ? { ...first, max: overrideValue }
+        : first.min !== undefined
+          ? { ...first, min: overrideValue }
+          : first;
+    return { rule: { ...rule, bands: [patched, ...rest], overridden: true }, applied: true, unsupported: false };
+  }
+  return { rule, applied: false, unsupported: true };
 }
 
 /** Lookup by stable id (e.g. `queue.est-peak-msgs-sec`), or undefined if unknown. */

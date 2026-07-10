@@ -3,7 +3,7 @@ import { composeDetector } from './detectors/compose.js';
 import { dependenciesDetector } from './detectors/dependencies.js';
 import { envDetector } from './detectors/env.js';
 import { extractOrmModels, ormDetector } from './detectors/orm.js';
-import { mergeDetections } from './detectors/merge.js';
+import { ambiguousDefaultStoreIds, mergeDetections } from './detectors/merge.js';
 import { harvestUsage } from './usage/harvester.js';
 import { classifyStores } from './classify/rules.js';
 import { classifyStoresWithGemini } from './classify/gemini.js';
@@ -47,13 +47,27 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   }
 
   const stores = mergeDetections(detections, ctx.addWarning);
+  // `suppress:` matches store ids or product names; suppressed stores stay in
+  // the inventory (annotated) but computeVerdicts skips them — local-output
+  // shaping only, never the CI gate (see config.ts precedence rule).
+  const suppress = new Set(opts.config.suppress);
+  for (const store of stores) {
+    if (suppress.has(store.id) || suppress.has(store.product)) store.suppressed = true;
+  }
   const usage = await harvestUsage(stores, ctx, { maxFiles: opts.maxFiles });
   const ruleRoles = classifyStores(stores, usage);
-  const roles = await classifyStoresWithGemini(stores, ruleRoles, usage, {
+  const classified = await classifyStoresWithGemini(stores, ruleRoles, usage, {
     noAi: opts.noAi,
     apiKey: process.env.GEMINI_API_KEY,
     addWarning: ctx.addWarning,
   });
+  // The 2.3 merge warning's promise: evidence stuck in a default bucket next
+  // to 2+ named instances can't be attributed, so role confidence is capped
+  // at medium regardless of which classifier produced it.
+  const ambiguous = ambiguousDefaultStoreIds(stores);
+  const roles = classified.map((role) =>
+    ambiguous.has(role.storeId) && role.confidence === 'high' ? { ...role, confidence: 'medium' as const } : role,
+  );
   // ormDetector already ran extractOrmModels once above; re-running it here
   // is a bounded re-scan (not a correctness issue) in exchange for keeping
   // the detector's own contract (Detection[], not raw OrmModel[]) unchanged.

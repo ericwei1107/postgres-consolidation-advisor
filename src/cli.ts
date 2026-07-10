@@ -101,8 +101,8 @@ async function runAnalyze(
   if (failOn.includes('new-store') && !existsSync(join(repoPath, LOCKFILE))) {
     throw new AdvisorError({
       problem: `--fail-on new-store requires a committed ${LOCKFILE}`,
-      cause: 'there is no baseline to diff detected stores against',
-      fix: 'run `postgres-advisor analyze --write-lock` and commit the lockfile first',
+      cause: 'there is no baseline to diff detected stores against, and the lockfile workflow ships in a later stage (PLAN.md 9.1)',
+      fix: 'drop new-store from --fail-on until the lockfile feature is released',
       docsAnchor: 'ci-gate',
     });
   }

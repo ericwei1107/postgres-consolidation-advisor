@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { analyze } from '../src/analyze.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
-import { mergeDetections } from '../src/detectors/merge.js';
+import { ambiguousDefaultStoreIds, mergeDetections } from '../src/detectors/merge.js';
 import type { Detection } from '../src/detectors/types.js';
 import type { DetectedStore, Evidence } from '../src/types.js';
 
@@ -134,6 +134,35 @@ describe('mergeDetections (dedup logic, done-conditions for 2.3)', () => {
       () => {},
     );
     expect(stores[0]!.evidence).toHaveLength(1);
+  });
+
+  it('ambiguousDefaultStoreIds flags only a default bucket next to 2+ named instances', () => {
+    const twoNamed = mergeDetections(
+      [
+        det('redis', { kind: 'service', name: 'redis-cache' }, [ev('compose', 'docker-compose.yml', 'image: redis:7')]),
+        det('redis', { kind: 'service', name: 'redis-broker' }, [ev('compose', 'docker-compose.yml', 'image: redis:7')]),
+        det('redis', { kind: 'default' }, [ev('dependency', 'package.json', '"ioredis": "^5.4.1"')]),
+      ],
+      () => {},
+    );
+    expect(ambiguousDefaultStoreIds(twoNamed)).toEqual(new Set(['redis:default']));
+
+    // With one named instance the fallback folds in — nothing ambiguous.
+    const oneNamed = mergeDetections(
+      [
+        det('redis', { kind: 'service', name: 'redis' }, [ev('compose', 'docker-compose.yml', 'image: redis:7')]),
+        det('redis', { kind: 'default' }, [ev('dependency', 'package.json', '"ioredis": "^5.4.1"')]),
+      ],
+      () => {},
+    );
+    expect(ambiguousDefaultStoreIds(oneNamed)).toEqual(new Set());
+
+    // A lone default bucket IS the product's only instance — not ambiguous.
+    const loneDefault = mergeDetections(
+      [det('redis', { kind: 'default' }, [ev('dependency', 'package.json', '"ioredis": "^5.4.1"')])],
+      () => {},
+    );
+    expect(ambiguousDefaultStoreIds(loneDefault)).toEqual(new Set());
   });
 });
 

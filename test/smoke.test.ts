@@ -60,10 +60,13 @@ describe('cli smoke (done-conditions for 1.1)', () => {
     expect(stderr).toContain('docs:');
   });
 
-  it('--fail-on new-store without a lockfile exits 2 pointing at --write-lock', () => {
+  it('--fail-on new-store without a lockfile exits 2 and says the workflow is not shipped yet', () => {
     const { code, stderr } = run(['analyze', FIXTURE_EMPTY, '--fail-on', 'new-store']);
     expect(code).toBe(2);
-    expect(stderr).toContain('--write-lock');
+    // The fix line must not point at a flag that doesn't exist yet (9.1).
+    expect(stderr).not.toContain('--write-lock');
+    expect(stderr).toContain('lockfile');
+    expect(stderr).toContain('9.1');
   });
 
   it('--fail-on keep,borderline passes on an empty repo (comma list parses)', () => {

@@ -103,3 +103,33 @@ describe('verdict engine golden files (done-conditions for 5.1)', () => {
     expect(await actualVerdicts('empty')).toEqual([]);
   });
 });
+
+describe('config knobs that shape verdicts (.postgres-advisor.yaml contract)', () => {
+  it('threshold_overrides moves the decision boundary and voids the citation', async () => {
+    // Lowering the queue consolidate line to 100 makes node-monolith's
+    // 2-200 msgs/sec range straddle it -> borderline instead of consolidate.
+    const config = { ...DEFAULT_CONFIG, threshold_overrides: { 'queue.est-peak-msgs-sec': 100 } };
+    const result = await analyze({ repoPath: join(FIXTURES_DIR, 'node-monolith'), config, noAi: true });
+    const queue = result.verdicts.find((v) => v.role === 'queue');
+    expect(queue?.decision).toBe('borderline');
+    expect(queue?.rationale).toContain('user-overridden; cited source no longer applies');
+    expect(queue?.thresholdComparisons[0]?.source).toBe('user-overridden; cited source no longer applies');
+  });
+
+  it('suppress keeps the store in the inventory (annotated) but produces no verdict', async () => {
+    const config = { ...DEFAULT_CONFIG, suppress: ['pinecone'] };
+    const result = await analyze({ repoPath: join(FIXTURES_DIR, 'python-service'), config, noAi: true });
+    const pinecone = result.stores.find((s) => s.product === 'pinecone');
+    expect(pinecone?.suppressed).toBe(true);
+    expect(result.verdicts.some((v) => v.role === 'vector')).toBe(false);
+    // The un-suppressed stores still get their verdicts.
+    expect(result.verdicts.some((v) => v.role === 'document')).toBe(true);
+  });
+
+  it('suppress also matches a full store id', async () => {
+    const config = { ...DEFAULT_CONFIG, suppress: ['redis:redis'] };
+    const result = await analyze({ repoPath: join(FIXTURES_DIR, 'node-monolith'), config, noAi: true });
+    expect(result.stores.find((s) => s.id === 'redis:redis')?.suppressed).toBe(true);
+    expect(result.verdicts.some((v) => v.storeId === 'redis:redis')).toBe(false);
+  });
+});

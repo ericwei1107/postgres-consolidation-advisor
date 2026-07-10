@@ -47,6 +47,23 @@ function hostportMatches(bucket: Bucket, host: string, port: string | undefined)
   return bucket.port === undefined || port === undefined || bucket.port === port;
 }
 
+/**
+ * Store ids whose default bucket survived the merge next to 2+ named
+ * instances — the ambiguity the merge warning promises caps downstream role
+ * confidence at medium. Derivable from the output: a `:default` store only
+ * coexists with named siblings in exactly that case (with one named instance
+ * the fallback is folded in; alone it IS the only instance).
+ */
+export function ambiguousDefaultStoreIds(stores: DetectedStore[]): Set<string> {
+  const countByProduct = new Map<string, number>();
+  for (const s of stores) countByProduct.set(s.product, (countByProduct.get(s.product) ?? 0) + 1);
+  const ambiguous = new Set<string>();
+  for (const s of stores) {
+    if (s.id === `${s.product}:default` && (countByProduct.get(s.product) ?? 0) >= 3) ambiguous.add(s.id);
+  }
+  return ambiguous;
+}
+
 export function mergeDetections(
   detections: Detection[],
   addWarning: (message: string) => void,

@@ -149,8 +149,17 @@ function mappingOption(rules: VerdictRules, name: string | undefined): MappingOp
   return rules.mappingOptions[0];
 }
 
+const OVERRIDDEN_CITATION = 'user-overridden; cited source no longer applies';
+
 function primarySource(threshold: ThresholdRule | undefined): string {
+  if (threshold?.overridden) return OVERRIDDEN_CITATION;
   return threshold?.sources[0]?.url ?? '';
+}
+
+/** The parenthesized citation in a rationale: `(grade: url)`, or the override note. */
+function citation(threshold: ThresholdRule): string {
+  if (threshold.overridden) return `(${OVERRIDDEN_CITATION})`;
+  return `(${threshold.sources[0]?.grade ?? 'source'}: ${primarySource(threshold)})`;
 }
 
 function evidenceRef(evidence: Evidence[]): string {
@@ -192,7 +201,7 @@ function dedupeEvidence(evidence: Evidence[]): Evidence[] {
   return out;
 }
 
-function migrationEffort(rules: VerdictRules, storeRole: StoreRole, evidence: Evidence[], option: MappingOption | undefined): MigrationEffort | undefined {
+function migrationEffort(evidence: Evidence[], option: MappingOption | undefined): MigrationEffort | undefined {
   if (!option) return undefined;
   const callSites = evidence.filter((e) => e.kind === 'call-site').length;
   const filesTouched = new Set(evidence.map((e) => e.file)).size;
@@ -259,7 +268,7 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
       comparison,
       option,
       rationale,
-      decision === 'consolidate' ? migrationEffort(rules, storeRole, evidence, option) : undefined,
+      decision === 'consolidate' ? migrationEffort(evidence, option) : undefined,
       rules.scoring,
     );
   }
@@ -298,7 +307,7 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
     const rationale =
       `${decision === 'keep' ? 'Keep' : decision === 'borderline' ? 'Borderline for' : 'Consolidate'} ` +
       `${storeRole.storeId} — ${threshold.variable} observed ${formatValue(signal.value, threshold.unit)} vs ` +
-      `${comparison.threshold} (${threshold.sources[0]?.grade ?? 'source'}: ${comparison.source}). ` +
+      `${comparison.threshold} ${citation(threshold)}. ` +
       `Evidence: ${evidenceRef(evidence)}. ${decision === 'keep' ? (threshold.failureMode ?? '') : ''}`.trim();
     return baseVerdict(
       storeRole,
@@ -308,7 +317,7 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
       comparison,
       option,
       rationale,
-      decision === 'consolidate' ? migrationEffort(rules, storeRole, evidence, option) : undefined,
+      decision === 'consolidate' ? migrationEffort(evidence, option) : undefined,
       rules.scoring,
     );
   }
@@ -344,7 +353,7 @@ export function computeVerdict(storeRole: StoreRole, signals: Signal[], rules: V
         comparison,
         option,
         rationale,
-        decision === 'consolidate' ? migrationEffort(rules, storeRole, evidence, option) : undefined,
+        decision === 'consolidate' ? migrationEffort(evidence, option) : undefined,
         rules.scoring,
       );
     }

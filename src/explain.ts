@@ -1,5 +1,6 @@
 import { AdvisorError } from './errors.js';
 import {
+  applyThresholdOverride,
   MAPPED_CATEGORIES,
   thresholdById,
   thresholdsByCategory,
@@ -51,39 +52,8 @@ function liveSourceLine(rule: ThresholdRule): string {
   return '**Live source:** none — not resolvable by live mode';
 }
 
-interface OverrideOutcome {
-  rule: ThresholdRule;
-  applied: boolean;
-  unsupported: boolean;
-}
-
-/**
- * Applies a `.postgres-advisor.yaml` `threshold_overrides` entry. The single
- * override number replaces the threshold's headline numeric value: for a
- * `bands` comparison that's the first band's boundary (the number PLAN.md §1
- * states in prose, e.g. queue's "< 1,000 msgs/sec"); for `reference` it's the
- * cited figure itself. `gate` thresholds have no numeric value to override.
- */
-function applyOverride(rule: ThresholdRule, overrideValue: number | undefined): OverrideOutcome {
-  if (overrideValue === undefined) return { rule, applied: false, unsupported: false };
-  if (rule.comparison === 'reference') {
-    return { rule: { ...rule, value: overrideValue }, applied: true, unsupported: false };
-  }
-  if (rule.comparison === 'bands' && rule.bands.length > 0) {
-    const [first, ...rest] = rule.bands as [ThresholdBand, ...ThresholdBand[]];
-    const patched: ThresholdBand =
-      first.max !== undefined
-        ? { ...first, max: overrideValue }
-        : first.min !== undefined
-          ? { ...first, min: overrideValue }
-          : first;
-    return { rule: { ...rule, bands: [patched, ...rest] }, applied: true, unsupported: false };
-  }
-  return { rule, applied: false, unsupported: true };
-}
-
 function renderThreshold(rule: ThresholdRule, overrideValue: number | undefined): string {
-  const { rule: effective, applied, unsupported } = applyOverride(rule, overrideValue);
+  const { rule: effective, applied, unsupported } = applyThresholdOverride(rule, overrideValue);
   const lines: string[] = [];
 
   lines.push(`## ${effective.id}`, '');
