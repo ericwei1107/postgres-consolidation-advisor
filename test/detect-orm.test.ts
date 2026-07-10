@@ -171,6 +171,19 @@ describe('ORM-schema detector (done-conditions for 2.4)', () => {
   });
 
   describe('Mongoose', () => {
+    it('does not mistake another library\'s Schema constructor for Mongoose', async () => {
+      const dir = tempRepo();
+      writeFileSync(
+        join(dir, 'editor.ts'),
+        [
+          'import { Schema } from "prosemirror-model";',
+          'const schema = new Schema({ nodes: {}, marks: {} });',
+        ].join('\n'),
+      );
+      const { stores } = await run(dir);
+      expect(stores).toEqual([]);
+    });
+
     it('extracts field names, types, and nested depth from a schema object literal', async () => {
       const dir = tempRepo();
       writeFileSync(
@@ -211,7 +224,7 @@ describe('ORM-schema detector (done-conditions for 2.4)', () => {
       const dir = tempRepo();
       writeFileSync(
         join(dir, 'order.js'),
-        'const orderSchema = new mongoose.Schema({ total: Number });',
+        "const mongoose = require('mongoose');\nconst orderSchema = new mongoose.Schema({ total: Number });",
       );
       const { context } = ctx(dir);
       const [model] = await extractOrmModels(context);
@@ -223,6 +236,7 @@ describe('ORM-schema detector (done-conditions for 2.4)', () => {
       writeFileSync(
         join(dir, 'user.js'),
         [
+          "import mongoose, { Schema } from 'mongoose';",
           'const userSchema =',
           '  new Schema({',
           '    // A comment mentioning } must not close the literal.',

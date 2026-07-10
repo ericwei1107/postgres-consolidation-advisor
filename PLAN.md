@@ -42,27 +42,27 @@ end of a session.
 **Language/stack: TypeScript on Node ≥ 20, single npm package.**
 Rationale: (a) the detection surface is mostly JSON/YAML/lockfile parsing, native to
 the Node ecosystem; (b) shipping as `npx postgres-advisor` and as a GitHub Action is
-zero-friction from one codebase; (c) `@anthropic-ai/sdk` is first-class. Python repos
+zero-friction from one codebase; (c) `@google/genai` is first-class. Python repos
 are *analysis targets*, not the implementation language — detectors read
 `requirements.txt`/`pyproject.toml`/SQLAlchemy files as text, which needs no Python
 runtime.
 
 **Fixed dependency set** (tasks must not add others without listing it in Open
 Questions): `commander` (CLI), `yaml` (compose/config parsing), `fast-glob` (file
-walking), `zod` (validating rule files and detector output), `@anthropic-ai/sdk`
+walking), `zod` (validating rule files and detector output), `@google/genai`
 (judgment calls only), `pg` (live mode only), `vitest` (tests), `tsup` (build).
 No tree-sitter/AST parsing in v1: call-pattern extraction is line-based
 regex over client-library call sites, which is deterministic, fast, language-agnostic
-enough, and its known imprecision is exactly what the Claude disambiguation step and
+enough, and its known imprecision is exactly what the Gemini disambiguation step and
 confidence scores exist to absorb.
 
-**Claude is used in exactly two places, nowhere else:**
+**Gemini is used in exactly two places, nowhere else:**
 1. Role disambiguation — e.g. "is this Redis usage a cache, a queue, a rate limiter,
    or several of those?" given extracted call-site snippets.
 2. Snippet tailoring — adapting a deterministic migration template to the repo's
    actual schema/names.
 Everything else (detection, mapping, scoring, thresholds) is rule-based and runs fully
-offline. Every Claude call site has a deterministic fallback (`--no-ai` flag): role
+offline. Every Gemini call site has a deterministic fallback (`--no-ai` flag): role
 falls back to "ambiguous — multiple candidate roles listed, confidence low"; snippets
 fall back to the untailored template.
 
@@ -313,9 +313,9 @@ repo path
   └─> Scanner        (walk files, cheap classification of what's worth parsing)
   └─> Detectors      (compose / env / manifests / ORM schemas)  → DetectedStore[]
   └─> UsageExtractor (call-site harvest per store)              → UsageEvidence[]
-  └─> RoleClassifier (rules first; Claude iff ambiguous)        → StoreRole[] (a store can have several)
+  └─> RoleClassifier (rules first; Gemini iff ambiguous)        → StoreRole[] (a store can have several)
   └─> FitScorer      (declarative rules/*.yaml + thresholds)    → Verdict[] per (store, role)
-  └─> SnippetGen     (templates/*.sql.hbs; Claude tailoring)    → Snippet[]
+  └─> SnippetGen     (templates/*.sql.hbs; Gemini tailoring)    → Snippet[]
   └─> Reporters      (markdown | json | html)
 [live mode: PgStatsCollector feeds real numbers into FitScorer, replacing estimates]
 ```
@@ -326,7 +326,7 @@ Core types (defined once in Stage 1, frozen after):
 type StoreCategory = 'cache'|'queue'|'search'|'document'|'vector'|'timeseries'|'olap'|'graph'|'geospatial'|'relational'|'unknown';
 interface DetectedStore { id: string; product: string; category: StoreCategory[]; evidence: Evidence[]; }
 interface Evidence { kind: 'compose'|'env'|'dependency'|'orm-schema'|'call-site'|'live-stats'; file: string; line?: number; excerpt: string; }
-interface StoreRole { storeId: string; role: StoreCategory; confidence: 'high'|'medium'|'low'; classifiedBy: 'rule'|'claude'; evidence: Evidence[]; }
+interface StoreRole { storeId: string; role: StoreCategory; confidence: 'high'|'medium'|'low'; classifiedBy: 'rule'|'gemini'; evidence: Evidence[]; }
 interface Verdict { storeId: string; role: StoreCategory; decision: 'consolidate'|'keep'|'borderline'; fitScore: number; confidence: 'high'|'medium'|'low';
   thresholdComparisons: { variable: string; observed: string; threshold: string; source: string; passed: boolean }[];
   rationale: string; postgresEquivalent: string; snippetId?: string; }
@@ -493,7 +493,7 @@ outputs, and done-condition.
 
 ### Stage 3 — Usage extraction and role classification
 
-- [ ] **3.1 — Call-site harvester**
+- [x] **3.1 — Call-site harvester** ✅ 2026-07-09
   - Inputs/dependencies: Stage 2 complete (needs `DetectedStore[]` to know what to
     look for).
   - Expected output: `src/usage/harvester.ts` — for each detected store, scans
@@ -529,7 +529,7 @@ outputs, and done-condition.
     a two-Redis-instance fixture (redis-cache + redis-broker) attributes call
     sites to the correct instance.
 
-- [ ] **3.2 — Rule-based role classifier**
+- [x] **3.2 — Rule-based role classifier** ✅ 2026-07-09
   - Inputs/dependencies: 3.1.
   - Expected output: `src/classify/rules.ts` + `rules/roles.yaml` — deterministic
     mapping: command-mix → roles with confidence. E.g. ≥90% of redis hits in
@@ -541,21 +541,23 @@ outputs, and done-condition.
     = cache+queue, python-service redis = queue via celery broker); table-driven
     unit tests for ≥10 command-mix scenarios.
 
-- [ ] **3.3 — Claude disambiguation pass**
-  - Inputs/dependencies: 3.2; `@anthropic-ai/sdk`; env `ANTHROPIC_API_KEY`.
-  - Expected output: `src/classify/claude.ts` — ONLY invoked for `unknown`-role
+- [x] **3.3 — Gemini disambiguation pass** ✅ 2026-07-09
+  - Inputs/dependencies: 3.2; `@google/genai`; env `GEMINI_API_KEY`.
+  - Expected output: `src/classify/gemini.ts` — ONLY invoked for `unknown`-role
     stores or rule confidence `low`. Prompt: store product + up to 30 UsageEvidence
     excerpts → strict JSON (`zod`-validated)
     `{roles: [{role, confidence}], rationale}` (`roles` min-length 1 — a single
     flat role would erase the per-(store,role) premise for an ambiguous Redis
     doing cache+queue+rate-limit).
-    Model: `claude-sonnet-5` (judgment quality matters more than cost here; ~1–5
-    calls per repo). Retries once on invalid JSON, then falls back to rule output.
+    Models: `gemini-3.1-pro-preview`, then `gemini-3.5-flash`, then
+    `gemini-3.1-flash-lite`. On a 429/`RESOURCE_EXHAUSTED` response, retry the
+    same request with the next model; all exhausted → rule fallback. Retries once
+    on invalid JSON, then falls back to rule output.
     `--no-ai` skips entirely.
   - Done-condition: mocked-SDK unit tests (valid JSON, invalid JSON→retry→fallback,
     API error→fallback); one live integration test behind `RUN_LIVE_TESTS=1`.
 
-- [ ] **3.4 — Reality checkpoint (real repos, before the verdict engine exists)**
+- [x] **3.4 — Reality checkpoint (real repos, before the verdict engine exists)** ✅ 2026-07-09
   - Inputs/dependencies: 3.1–3.3.
   - Expected output: run detection + role classification (NOT verdicts — they
     don't exist yet) against 2 cloned real OSS apps with docker-compose files
@@ -703,10 +705,10 @@ outputs, and done-condition.
     on Alpine/ARM/Node bumps — and a security control depends on this module
     loading); JS/TS snippets pass `tsc --noEmit`.
 
-- [ ] **6.2 — Claude snippet tailoring**
-  - Inputs/dependencies: 6.1, 3.3's Claude wrapper.
+- [ ] **6.2 — Gemini snippet tailoring**
+  - Inputs/dependencies: 6.1, 3.3's Gemini wrapper.
   - Expected output: `src/snippets/tailor.ts` — takes rendered template + the
-    store's ORM field summary, asks Claude to adapt names/types/columns (strict
+    store's ORM field summary, asks Gemini to adapt names/types/columns (strict
     instruction: modify identifiers and comments only, no structural changes),
     re-validates with libpg-query after — including an **AST-shape equality
     check**: parse both template and tailored output, compare normalized AST
@@ -735,10 +737,10 @@ outputs, and done-condition.
     text never color-only — then an impact-shaped summary line ("You can fold 2
     of 4 stores into Postgres") and a final line naming the single next action
     ("Full report: --out report.md · borderlines: --live <conn>"). Live mode
-    shows a sampling countdown ("sampling pg_stat 60s…"). If ANTHROPIC_API_KEY
+    shows a sampling countdown ("sampling pg_stat 60s…"). If GEMINI_API_KEY
     is absent and --no-ai not passed: one up-front banner ("Running without AI
     disambiguation — role confidence may be lower"), not scattered annotations;
-    a SET-but-rejected key (401) is a distinct message ("ANTHROPIC_API_KEY set
+    a SET-but-rejected key (401) is a distinct message ("GEMINI_API_KEY set
     but rejected — check the key, or pass --no-ai to silence"), never collapsed
     into the generic API-error fallback. Honors `NO_COLOR` in addition to
     piped-output detection.
@@ -872,7 +874,7 @@ outputs, and done-condition.
     `.postgres-advisor.yaml` suppressions do not (they shape local reports only).
     The plain-CLI equivalent (`analyze --fail-on new-store`, exit 1) works in any
     CI, not just GitHub Actions. Action security & modes: the Action defaults to
-    `--no-ai` (no secret needed → safe on fork PRs; `anthropic-api-key` input
+    `--no-ai` (no secret needed → safe on fork PRs; `gemini-api-key` input
     opts in for same-repo workflows only); `fail: true|false` input picks
     fail-the-check vs comment-only mode (default `true`); PR-comment content
     derived from repo files (names, excerpts) is always code-fenced/escaped
@@ -892,7 +894,7 @@ outputs, and done-condition.
   - Inputs/dependencies: 9.1.
   - Expected output: README (first five lines = the npx one-liner + what you
     get; install, quickstart, sample report inlined, `--no-ai` and live-mode
-    docs, env-var table [`ANTHROPIC_API_KEY`, `POSTGRES_ADVISOR_MODEL`],
+    docs, env-var table [`GEMINI_API_KEY`, `POSTGRES_ADVISOR_GEMINI_MODELS`],
     exit-code table, troubleshooting section [Helm-skipped, minified skips,
     --max-files], `--format json` note for agent/programmatic consumers);
     **config-file reference** with a complete annotated `.postgres-advisor.yaml`
@@ -964,12 +966,12 @@ Every judgment call and unverified number, for review before implementation:
 **Design judgment calls:**
 
 - Regex call-site harvesting instead of AST/tree-sitter (§0). Trades precision for
-  simplicity/speed; mitigated by Claude disambiguation + confidence caps. Revisit if
+  simplicity/speed; mitigated by Gemini disambiguation + confidence caps. Revisit if
   fixture false-positive rate is annoying in practice.
 - TypeScript over Python despite many target repos being Python (§0 rationale).
-- Claude model pinned to `claude-sonnet-5` for classification (3.3) — cost/quality
-  guess, trivially changeable via env var `POSTGRES_ADVISOR_MODEL` (branded
-  namespace; generic `ADVISOR_MODEL` invites collisions).
+- Gemini classification uses a capability-ordered model chain (3.1 Pro Preview →
+  3.5 Flash → 3.1 Flash-Lite). Only rate-limited requests downgrade; override the
+  chain with `POSTGRES_ADVISOR_GEMINI_MODELS` (comma-separated).
 - `handlebars` added to the fixed dependency set in 6.1; `libpg-query` for SQL
   validation; `happy-dom` for 7.2 tests.
 - Per-(store,role) verdicts mean one physical Redis can yield "consolidate the
@@ -995,7 +997,7 @@ Every judgment call and unverified number, for review before implementation:
                               │                      │                      │
  repo path ─▶ Scanner ─▶ Detectors ──▶ UsageExtractor ──▶ RoleClassifier ──▶ FitScorer ─▶ SnippetGen ─▶ Reporters
               (walk,     compose/deps/    (call-site        (rules first;      ▲   │        (hbs +        (md/json/html)
-               ignore     env/orm          harvest,          Claude iff        │   │         Claude        │
+               ignore     env/orm          harvest,          Gemini iff        │   │         Gemini        │
                list,      │                caps+skips)       ambiguous)        │   ▼         tailor +      ▼
                symlink    ▼                                                    │  Verdict[]  AST guard)   report +
                off)     DetectedStore[]                                        │                          warnings
@@ -1007,7 +1009,7 @@ Every judgment call and unverified number, for review before implementation:
 
 Shadow paths, per flow: nil (no files → "0 stores", win-state copy) · empty
 (store w/o call sites → role unknown, confidence low) · error (malformed file →
-skip + warning; detector crash → isolated + warning; Claude fail/refusal →
+skip + warning; detector crash → isolated + warning; Gemini fail/refusal →
 deterministic fallback, logged distinctly).
 
 ### Error & Rescue Registry
@@ -1017,9 +1019,9 @@ deterministic fallback, logged distinctly).
 | Scanner walk | EACCES, symlink loop | Y | skip + warning | warnings section |
 | Detector parse (yaml/json/toml) | malformed file, YAML bomb | Y | safe-load caps; skip + warning | warnings section |
 | Any detector | unexpected throw | Y | per-detector isolation | warnings section; others still report |
-| Claude classify | timeout/429/5xx | Y | 1 retry → rule fallback | "(rule-classified; AI unavailable)" |
-| Claude classify | invalid JSON | Y | retry once → fallback | as above |
-| Claude classify | refusal | Y | fallback (logged as refusal, not JSON error) | as above |
+| Gemini classify | 429/RESOURCE_EXHAUSTED | Y | next configured model → rule fallback | "(rule-classified; AI unavailable)" |
+| Gemini classify | other timeout/5xx | Y | rule fallback | as above |
+| Gemini classify | invalid JSON/refusal | Y | retry once → fallback | as above |
 | Snippet tailor | invalid SQL or AST drift | Y | ship untailored template | "(untailored template)" note |
 | Rules load | zod validation fails | N — intentional hard fail | exit 2 with named field | "rules file invalid: <path>: <issue>" |
 | Live mode | conn refused / auth | Y | exit 2, redacted conn string | actionable message |
@@ -1036,7 +1038,7 @@ deterministic fallback, logged distinctly).
 | Verdict engine | range straddles threshold | Y (borderline) | Y (golden) | borderline + next-step cmd | Y |
 | Env detector | secret in .env | Y (redaction) | Y (fake-password fixture) | redacted value | Y |
 | Action | fork PR w/o secrets | Y (--no-ai default) | Y (workflow test) | comment w/o AI extras | Y |
-| Claude paths | API down | Y (fallback) | Y (mocked) | fallback annotations | Y |
+| Gemini paths | API down | Y (fallback) | Y (mocked) | fallback annotations | Y |
 
 No row is RESCUED=N/TEST=N/silent → **no CRITICAL GAPS open**. (Rules-load hard
 fail is intentional and loud.)
@@ -1049,7 +1051,7 @@ final gate.
 
 ### What already exists (leverage map)
 Greenfield repo — leverage is external: commander/yaml/fast-glob/zod (parsing +
-validation), @anthropic-ai/sdk (2 call sites), pg (live mode), libpg-query
+validation), @google/genai (2 call sites), pg (live mode), libpg-query
 (SQL validation + AST guard), handlebars (templates), pgmq/pgvector/ParadeDB/
 TimescaleDB/PostGIS/AGE (the consolidation targets — mapped in
 rules/mappings.yaml, not rebuilt). No sub-problem re-implements an existing
@@ -1067,7 +1069,7 @@ calibration from real-repo corpus, post-migration verification. Architecture
 | # | Phase | Decision | Classification | Principle | Rationale | Rejected |
 |---|-------|----------|----------------|-----------|-----------|----------|
 | 1 | CEO | Keep cross-project-learnings config unset (project-scoped search only) | Mechanical | P3 | Avoid silently writing global config from an auto pipeline; reversible any time | Auto-enabling cross-project learnings |
-| 2 | CEO | Implementation approach A: as-planned deterministic engine + narrow Claude | Mechanical | P1, P5 | B (inventory-only) deletes the quantified-verdict differentiator; C (LLM-centric) violates ratified premise P6 (determinism, offline, CI) | B minimal-viable; C LLM-centric |
+| 2 | CEO | Implementation approach A: as-planned deterministic engine + narrow Gemini | Mechanical | P1, P5 | B (inventory-only) deletes the quantified-verdict differentiator; C (LLM-centric) violates ratified premise P6 (determinism, offline, CI) | B minimal-viable; C LLM-centric |
 | 3 | CEO | ACCEPT expansion: `.postgres-advisor.yaml` config (suppressions + threshold overrides) | Mechanical | P2 | Regex harvesting guarantees false positives; suppression is table stakes for CI. In blast radius, <5 files, <1d CC | Shipping v1 with no suppression story |
 | 4 | CEO | ACCEPT expansion: `--fail-on` flag + exit codes | Mechanical | P2, P6 | CI gating outside GitHub Actions; Action needs the diff logic anyway | Action-only CI integration |
 | 5 | CEO | ACCEPT expansion: `explain <threshold-id>` subcommand | Mechanical | P2 | Read-only over rules/thresholds.yaml; amplifies cited-source differentiator | — |
@@ -1089,7 +1091,7 @@ calibration from real-repo corpus, post-migration verification. Architecture
 | 21 | CEO §1 | Parse-error policy + detector isolation + walk hardening (symlinks off, ignore list, YAML caps) → 2.1 | Mechanical | P1 | Malformed target-repo files must never crash analysis; silent failures banned | Crash-on-bad-input |
 | 22 | CEO §1 | Structured `FieldSummary` type replaces excerpt-string interface into 4.3/6.2 | Mechanical | P5 | Stringly-typed Evidence.excerpt as data interface is fragile | Parsing excerpts downstream |
 | 23 | CEO §3 | Secret redaction rule in 2.3 (env values never in Evidence/reports/lockfile/comments) + fixture test | Mechanical | P1 | Highest-impact security finding: report artifacts get committed/posted | Trusting excerpts |
-| 24 | CEO §3 | AST-shape equality guard on Claude-tailored snippets → 6.2 | Mechanical | P1 | Defuses prompt-injection → malicious SQL in copy-paste snippets | Syntax-only validation |
+| 24 | CEO §3 | AST-shape equality guard on Gemini-tailored snippets → 6.2 | Mechanical | P1 | Defuses prompt-injection → malicious SQL in copy-paste snippets | Syntax-only validation |
 | 25 | CEO §3 | Action defaults --no-ai (fork-PR secret safety) + fail/comment-only mode input + comment escaping → 9.1 | Mechanical | P1 | Secrets must not be required on fork PRs; wrong-block mode needs an escape | Secret-required Action |
 | 26 | CEO §4 | Merge key = product + instance identity (not product alone) → 2.3 | Mechanical | P1 | Two Redis instances in one compose are two stores; wrong merge poisons per-store verdicts | Product-only merge |
 | 27 | CEO §6 | Repo's own CI workflow added (1.1/9.1); report determinism rules → 7.1 | Mechanical | P1 | "Byte-exact in CI" promised with no CI defined; golden files need determinism | Implicit CI |

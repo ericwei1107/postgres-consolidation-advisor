@@ -48,6 +48,7 @@
     "cli"
   ],
   "dependencies": {
+    "@google/genai": "^2.11.0",
     "commander": "^13.1.0",
     "fast-glob": "^3.3.3",
     "yaml": "^2.7.0",

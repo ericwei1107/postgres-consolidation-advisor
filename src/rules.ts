@@ -74,6 +74,28 @@ const CallPatternsFileSchema = z.object({
   ),
 });
 
+const RolesFileSchema = z.object({
+  products: z.record(
+    z.string(),
+    z.object({
+      fixed_role: StoreCategorySchema.optional(),
+      cache: z
+        .object({
+          commands: z.array(z.string()).min(1),
+          min_share: z.number().min(0).max(1),
+          mixed_confidence: z.enum(['high', 'medium', 'low']),
+        })
+        .optional(),
+      queue: z
+        .object({
+          libraries: z.array(z.string()).min(1),
+          commands: z.array(z.string()).min(1),
+        })
+        .optional(),
+    }),
+  ),
+});
+
 export interface ProductRule {
   product: string;
   category: StoreCategory[];
@@ -93,6 +115,13 @@ export interface CallPatternRule {
   product: string;
   libraries: string[];
   patterns: RegExp[];
+}
+
+export interface RoleRule {
+  product: string;
+  fixedRole?: StoreCategory;
+  cache?: { commands: string[]; minShare: number; mixedConfidence: 'high' | 'medium' | 'low' };
+  queue?: { libraries: string[]; commands: string[] };
 }
 
 let cachedFile: ProductsFile | undefined;
@@ -212,6 +241,62 @@ export function loadCallPatterns(): CallPatternRule[] {
     patterns: def.patterns.map((pattern) => new RegExp(pattern, 'g')),
   }));
   return cachedCallPatterns;
+}
+
+let cachedRoles: Map<string, RoleRule> | undefined;
+
+/** Deterministic product and command-mix rules for the Stage 3 role classifier. */
+export function loadRoleRules(): Map<string, RoleRule> {
+  if (cachedRoles) return cachedRoles;
+  const file = join(rulesDir(), 'roles.yaml');
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(readFileSync(file, 'utf8'), { maxAliasCount: 100 });
+  } catch (e) {
+    throw new AdvisorError({
+      problem: 'rules/roles.yaml is not valid YAML',
+      cause: e instanceof Error ? e.message : String(e),
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  const result = RolesFileSchema.safeParse(parsed);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new AdvisorError({
+      problem: `rules/roles.yaml is invalid at \`${issue?.path.join('.') ?? '(root)'}\``,
+      cause: issue?.message ?? 'schema validation failed',
+      fix: 'this is a packaging bug — please file an issue',
+      docsAnchor: 'troubleshooting',
+    });
+  }
+  cachedRoles = new Map(
+    Object.entries(result.data.products).map(([product, rule]) => [
+      product,
+      {
+        product,
+        ...(rule.fixed_role ? { fixedRole: rule.fixed_role } : {}),
+        ...(rule.cache
+          ? {
+              cache: {
+                commands: rule.cache.commands.map((command) => command.toLowerCase()),
+                minShare: rule.cache.min_share,
+                mixedConfidence: rule.cache.mixed_confidence,
+              },
+            }
+          : {}),
+        ...(rule.queue
+          ? {
+              queue: {
+                libraries: rule.queue.libraries.map((library) => library.toLowerCase()),
+                commands: rule.queue.commands.map((command) => command.toLowerCase()),
+              },
+            }
+          : {}),
+      } satisfies RoleRule,
+    ],
+  ));
+  return cachedRoles;
 }
 
 /** Category seed for a product from the products table, or ['unknown']. */

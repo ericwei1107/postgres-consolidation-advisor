@@ -2,7 +2,7 @@
 # when it imports/requires one of that product's client libraries.
 products:
   redis:
-    libraries: [ioredis, redis, node-redis, bullmq, bee-queue, celery]
+    libraries: [ioredis, redis, node-redis, bull, bullmq, bee-queue, celery]
     patterns:
       - '\.(get|set|setex|del|expire|zadd|zrange|publish|subscribe|xadd|eval|incr|add)\s*\('
       - '\b(Queue|Worker)\s*\('

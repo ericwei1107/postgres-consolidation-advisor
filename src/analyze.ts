@@ -5,6 +5,8 @@ import { envDetector } from './detectors/env.js';
 import { ormDetector } from './detectors/orm.js';
 import { mergeDetections } from './detectors/merge.js';
 import { harvestUsage } from './usage/harvester.js';
+import { classifyStores } from './classify/rules.js';
+import { classifyStoresWithGemini } from './classify/gemini.js';
 import type { Detection, Detector, DetectorContext } from './detectors/types.js';
 import type { AnalysisResult } from './types.js';
 
@@ -44,12 +46,18 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   }
 
   const stores = mergeDetections(detections, ctx.addWarning);
-  await harvestUsage(stores, ctx, { maxFiles: opts.maxFiles });
+  const usage = await harvestUsage(stores, ctx, { maxFiles: opts.maxFiles });
+  const ruleRoles = classifyStores(stores, usage);
+  const roles = await classifyStoresWithGemini(stores, ruleRoles, usage, {
+    noAi: opts.noAi,
+    apiKey: process.env.GEMINI_API_KEY,
+    addWarning: ctx.addWarning,
+  });
 
   return {
     schemaVersion: 1,
     stores,
-    roles: [],
+    roles,
     verdicts: [],
     warnings,
   };

@@ -91,7 +91,7 @@ export interface StoreRole {
   storeId: string;
   role: StoreCategory;
   confidence: Confidence;
-  classifiedBy: 'rule' | 'claude';
+  classifiedBy: 'rule' | 'gemini';
   evidence: Evidence[];
 }
 
@@ -99,7 +99,7 @@ export const StoreRoleSchema = z.object({
   storeId: z.string(),
   role: StoreCategorySchema,
   confidence: ConfidenceSchema,
-  classifiedBy: z.enum(['rule', 'claude']),
+  classifiedBy: z.enum(['rule', 'gemini']),
   evidence: z.array(EvidenceSchema),
 }) satisfies z.ZodType<StoreRole>;
 

@@ -83,7 +83,7 @@ function progress(msg: string): void {
 
 async function runAnalyze(
   pathArg: string,
-  opts: { format?: string; out?: string; ai: boolean; failOn: string; maxFiles?: number; verbose?: boolean },
+  opts: { format?: string; out?: string; noAi?: boolean; failOn: string; maxFiles?: number; verbose?: boolean },
 ): Promise<never> {
   const repoPath = resolve(pathArg);
   if (!existsSync(repoPath)) {
@@ -109,7 +109,7 @@ async function runAnalyze(
   const config = loadConfig(repoPath);
 
   progress('Scanning…');
-  const result = await analyze({ repoPath, config, noAi: !opts.ai, maxFiles: opts.maxFiles });
+  const result = await analyze({ repoPath, config, noAi: opts.noAi === true, maxFiles: opts.maxFiles });
   progress(`${result.stores.length} stores detected`);
   if (opts.verbose) {
     for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
@@ -180,13 +180,13 @@ program
   .option('--out <file>', 'write the report to a file instead of stdout')
   .option('--max-files <count>', 'limit source files scanned for call sites', parseMaxFiles)
   .option('--verbose', 'print analysis warnings and skipped-file counts to stderr')
-  .option('--no-ai', 'skip Claude calls; use deterministic fallbacks everywhere')
+  .option('--no-ai', 'skip Gemini calls; use deterministic fallbacks everywhere')
   .option(
     '--fail-on <conditions>',
     `comma-separated exact-match list: ${FAIL_ON_VALUES.join(', ')} (exit 1 on hit)`,
     'none',
   )
-  .action(async (pathArg: string | undefined, opts: { format?: string; out?: string; ai: boolean; failOn: string; maxFiles?: number; verbose?: boolean }) => {
+  .action(async (pathArg: string | undefined, opts: { format?: string; out?: string; noAi?: boolean; failOn: string; maxFiles?: number; verbose?: boolean }) => {
     await runAnalyze(pathArg ?? '.', opts);
   });
 

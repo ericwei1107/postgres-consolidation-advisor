@@ -103,6 +103,7 @@ client_libraries:
   redis: { product: redis } # npm `redis`, PyPI `redis`, Ruby `redis`
   node-redis: { product: redis }
   bullmq: { product: redis, category: [queue] }
+  bull: { product: redis, category: [queue] }
   bee-queue: { product: redis, category: [queue] }
   sidekiq: { product: redis, category: [queue] }
   'github.com/redis/go-redis': { product: redis }

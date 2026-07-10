@@ -373,6 +373,8 @@ function parsePrismaFiles(files: { file: string; raw: string }[]): OrmModel[] {
 // --- Mongoose ---
 
 const MONGOOSE_SCHEMA_RE = /(?:^|[^.\w])new\s+(?:mongoose\.)?Schema\s*(?:<[^>]*>)?\s*\(/g;
+/** Avoid treating unrelated constructors such as ProseMirror's `Schema` as Mongoose models. */
+const MONGOOSE_IMPORT_RE = /\bimport\s+(?:type\s+)?[^;\n]+?\s+from\s*["']mongoose["']|\brequire\s*\(\s*["']mongoose["']\s*\)/;
 
 /** `{ type: String, required: true }` option objects vs nested subdocuments. */
 function mongooseFieldShape(value: string): FieldShape {
@@ -394,7 +396,7 @@ function mongooseFieldShape(value: string): FieldShape {
 }
 
 function parseMongoose(raw: string, file: string): OrmModel[] {
-  if (!raw.includes('Schema')) return [];
+  if (!raw.includes('Schema') || !MONGOOSE_IMPORT_RE.test(raw)) return [];
 
   // schema variable → registered model name (mongoose.model('User', userSchema)).
   const modelNames = new Map<string, string>();

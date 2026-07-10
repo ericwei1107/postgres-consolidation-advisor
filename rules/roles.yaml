@@ -1,0 +1,26 @@
+# Deterministic Stage 3.2 role rules. Commands are normalized case-insensitively.
+products:
+  redis:
+    cache:
+      commands: [get, set, setex, del, expire, zadd, zrange, incr]
+      min_share: 0.9
+      mixed_confidence: medium
+    queue:
+      libraries: [bull, bullmq, bee-queue, sidekiq, celery]
+      commands: [Queue, Worker, add]
+  mongodb:
+    fixed_role: document
+  elasticsearch:
+    fixed_role: search
+  opensearch:
+    fixed_role: search
+  kafka:
+    fixed_role: queue
+  rabbitmq:
+    fixed_role: queue
+  pinecone:
+    fixed_role: vector
+  weaviate:
+    fixed_role: vector
+  qdrant:
+    fixed_role: vector
