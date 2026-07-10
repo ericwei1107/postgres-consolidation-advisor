@@ -82,10 +82,29 @@ function progress(msg: string): void {
   if (process.stderr.isTTY) process.stderr.write(msg + '\n');
 }
 
+/**
+ * Exit AFTER stdio is flushed. On POSIX, stdout/stderr writes to a pipe are
+ * asynchronous, and `process.exit()` discards whatever is still queued in
+ * Node's userland buffer — a bare exit after `process.stdout.write(artifact)`
+ * truncates any artifact larger than the pipe buffer (~64KB) in exactly the
+ * piped-CI invocation the 1.1 stdout contract exists for. Write callbacks are
+ * ordered behind previously queued writes, so a zero-byte write's callback
+ * fires once each stream has drained to the OS.
+ */
+function exitAfterFlush(code: number): void {
+  let pending = 2;
+  const done = (): void => {
+    pending -= 1;
+    if (pending === 0) process.exit(code);
+  };
+  process.stdout.write('', done);
+  process.stderr.write('', done);
+}
+
 async function runAnalyze(
   pathArg: string,
   opts: { format?: string; out?: string; noAi?: boolean; failOn: string; maxFiles?: number; verbose?: boolean },
-): Promise<never> {
+): Promise<void> {
   const repoPath = resolve(pathArg);
   if (!existsSync(repoPath)) {
     throw new AdvisorError({
@@ -158,11 +177,8 @@ async function runAnalyze(
       ? false // new-store diffing arrives with the lockfile logic (Stage 9.1)
       : result.verdicts.some((v) => v.decision === cond),
   );
-  if (hit) {
-    process.stderr.write(`fail-on condition hit: ${hit}\n`);
-    process.exit(EXIT_FAIL_ON);
-  }
-  process.exit(EXIT_OK);
+  if (hit) process.stderr.write(`fail-on condition hit: ${hit}\n`);
+  exitAfterFlush(hit ? EXIT_FAIL_ON : EXIT_OK);
 }
 
 const program = new Command();
@@ -208,17 +224,18 @@ program
 
       if (opts.list) {
         process.stdout.write(listThresholds());
-        process.exit(EXIT_OK);
+        exitAfterFlush(EXIT_OK);
+        return;
       }
 
       const repoPath = resolve(opts.path);
       const config = existsSync(repoPath) ? loadConfig(repoPath) : loadConfig(process.cwd());
       process.stdout.write(explainThreshold(thresholdId as string, config.threshold_overrides));
-      process.exit(EXIT_OK);
+      exitAfterFlush(EXIT_OK);
     } catch (e) {
       const err = e instanceof AdvisorError ? e : new AdvisorError({ problem: e instanceof Error ? e.message : String(e) });
       console.error(err.format());
-      process.exit(EXIT_ERROR);
+      exitAfterFlush(EXIT_ERROR);
     }
   });
 
@@ -228,5 +245,5 @@ program.parseAsync(process.argv).catch((e: unknown) => {
   } else {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
   }
-  process.exit(EXIT_ERROR);
+  exitAfterFlush(EXIT_ERROR);
 });
