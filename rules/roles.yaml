@@ -1,13 +1,34 @@
 # Deterministic Stage 3.2 role rules. Commands are normalized case-insensitively.
+#
+# `command_mix` (Stage 4.3 cacheCommandMix signal): the SAME harvested
+# commands partitioned by a different question than `cache.commands` asks.
+# `cache.commands` answers "is this store used as a cache (vs a queue)?" —
+# so hash/list/set/sorted-set traffic counts, it's still caching.
+# `command_mix` answers "does the cache usage need Redis-native structures
+# with no clean Postgres equivalent?" — plain get/set KV maps to an UNLOGGED
+# table; sorted sets, pub/sub, streams, Lua, INCR rate limiting, and
+# hash/list/set structure commands do not (thresholds.yaml
+# cache.redis-native-structures-gate).
 products:
   redis:
     cache:
-      commands: [get, set, setex, del, expire, zadd, zrange, incr]
+      commands: [get, set, setex, del, expire, ttl, mget, mset, incr, zadd, zrange,
+                 hget, hset, hgetall, hdel, lpush, rpush, lpop, rpop, lrange,
+                 sadd, srem, smembers, sismember]
       min_share: 0.9
       mixed_confidence: medium
     queue:
       libraries: [bull, bullmq, bee-queue, sidekiq, celery]
       commands: [Queue, Worker, add]
+    command_mix:
+      plain_kv: [get, set, setex, del, expire, ttl, mget, mset]
+      native_structure: [zadd, zrange, publish, subscribe, xadd, eval, incr,
+                         hget, hset, hgetall, hdel, lpush, rpush, lpop, rpop, lrange,
+                         sadd, srem, smembers, sismember]
+  memcached:
+    command_mix:
+      plain_kv: [get, set, set_multi, delete, incr, decr]
+      native_structure: []
   mongodb:
     fixed_role: document
   elasticsearch:

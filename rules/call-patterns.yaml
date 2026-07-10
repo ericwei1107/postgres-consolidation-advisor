@@ -4,7 +4,7 @@ products:
   redis:
     libraries: [ioredis, redis, node-redis, bull, bullmq, bee-queue, celery]
     patterns:
-      - '\.(get|set|setex|del|expire|zadd|zrange|publish|subscribe|xadd|eval|incr|add)\s*\('
+      - '\.(get|set|setex|del|expire|ttl|mget|mset|zadd|zrange|publish|subscribe|xadd|eval|incr|hget|hset|hgetall|hdel|lpush|rpush|lpop|rpop|lrange|sadd|srem|smembers|sismember|add)\s*\('
       - '\b(Queue|Worker)\s*\('
   memcached:
     libraries: [memcached, pymemcache, python-memcached, dalli]

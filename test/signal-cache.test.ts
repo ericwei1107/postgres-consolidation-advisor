@@ -50,6 +50,24 @@ describe('cacheCommandMix (done-conditions for 4.3)', () => {
     ];
     expect(cacheCommandMix('redis:x', usage)).toBeNull();
   });
+
+  it('hash/list/set commands count as native structures (roles.yaml command_mix)', () => {
+    const usage = [
+      { storeId: 'redis:x', command: 'get', kind: 'call-site' as const, file: 'a.ts', line: 1, excerpt: 'redis.get(k)' },
+      { storeId: 'redis:x', command: 'hset', kind: 'call-site' as const, file: 'a.ts', line: 2, excerpt: 'redis.hset(k, f, v)' },
+      { storeId: 'redis:x', command: 'lpush', kind: 'call-site' as const, file: 'a.ts', line: 3, excerpt: 'redis.lpush(k, v)' },
+      { storeId: 'redis:x', command: 'sadd', kind: 'call-site' as const, file: 'a.ts', line: 4, excerpt: 'redis.sadd(k, v)' },
+    ];
+    const signal = cacheCommandMix('redis:x', usage);
+    expect(signal!.value).toBeCloseTo(1 / 4);
+  });
+
+  it('a product without a command_mix partition yields no signal (never a guess)', () => {
+    const usage = [
+      { storeId: 'weaviate:x', command: 'get', kind: 'call-site' as const, file: 'a.ts', line: 1, excerpt: 'client.get(k)' },
+    ];
+    expect(cacheCommandMix('weaviate:x', usage)).toBeNull();
+  });
 });
 
 describe('cacheFanOut (done-conditions for 4.3, [A9])', () => {

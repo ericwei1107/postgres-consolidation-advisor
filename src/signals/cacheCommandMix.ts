@@ -1,3 +1,4 @@
+import { loadRoleRules } from '../rules.js';
 import type { UsageEvidence } from '../usage/harvester.js';
 import type { Evidence } from '../types.js';
 import type { Signal } from './types.js';
@@ -8,24 +9,27 @@ import type { Signal } from './types.js';
  * Redis-native structures with no clean Postgres equivalent
  * (thresholds.yaml cache.redis-native-structures-gate). Returns the plain-KV
  * share (0..1) directly from the Stage 3.1 harvest — no re-scanning needed.
+ * The command partition is data, not code: roles.yaml `command_mix` per
+ * product. A product without one yields no signal (never a guess).
  */
-
-const PLAIN_KV_COMMANDS = new Set(['get', 'set', 'setex', 'del', 'expire', 'ttl', 'mget', 'mset']);
-const NATIVE_STRUCTURE_COMMANDS = new Set(['zadd', 'zrange', 'publish', 'subscribe', 'xadd', 'eval', 'incr']);
 
 function toEvidence({ kind, file, line, excerpt }: UsageEvidence): Evidence {
   return { kind, file, ...(line !== undefined ? { line } : {}), excerpt };
 }
 
 export function cacheCommandMix(storeId: string, usage: UsageEvidence[]): Signal | null {
+  const product = storeId.split(':', 1)[0] ?? '';
+  const mix = loadRoleRules().get(product)?.commandMix;
+  if (!mix) return null;
+
   const hits = usage.filter((u) => {
     if (u.storeId !== storeId) return false;
     const command = u.command.toLowerCase();
-    return PLAIN_KV_COMMANDS.has(command) || NATIVE_STRUCTURE_COMMANDS.has(command);
+    return mix.plainKv.has(command) || mix.nativeStructure.has(command);
   });
   if (hits.length === 0) return null;
 
-  const plainCount = hits.filter((u) => PLAIN_KV_COMMANDS.has(u.command.toLowerCase())).length;
+  const plainCount = hits.filter((u) => mix.plainKv.has(u.command.toLowerCase())).length;
 
   return {
     variable: 'command-mix-plain-kv-share',
