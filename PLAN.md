@@ -807,7 +807,7 @@ outputs, and done-condition.
 
 ### Stage 7 — Reports
 
-- [ ] **7.0 — Terminal output contract (stdout is the first surface)** `[Importance: HIGH]`
+- [x] **7.0 — Terminal output contract (stdout is the first surface)** `[Importance: HIGH]` ✅ 2026-07-10
   - Inputs/dependencies: Stage 5 verdicts.
   - Expected output: `src/report/terminal.ts`. Default `analyze` stdout: phased
     progress lines on TTY only ("Scanning… / 4 stores detected / Classifying

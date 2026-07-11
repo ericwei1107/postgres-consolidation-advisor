@@ -22,6 +22,7 @@ import { analyze } from './analyze.js';
 import { loadConfig } from './config.js';
 import { explainThreshold, listThresholds } from './explain.js';
 import { AdvisorError, EXIT_ERROR, EXIT_FAIL_ON, EXIT_OK } from './errors.js';
+import { AI_KEY_REJECTED, NO_AI_BANNER, renderTerminal } from './report/terminal.js';
 import type { AnalysisResult } from './types.js';
 
 const VERSION = '0.1.0';
@@ -78,8 +79,14 @@ function renderMarkdown(result: AnalysisResult): string {
 }
 
 function progress(msg: string): void {
-  // Progress lines never contaminate a piped artifact stream.
+  // Phase/progress lines are TTY-only and never contaminate a piped artifact stream.
   if (process.stderr.isTTY) process.stderr.write(msg + '\n');
+}
+
+function notice(msg: string): void {
+  // Degradation notices (AI off, key rejected) always show on stderr — CI logs
+  // want them too — but stay off stdout so a piped artifact stays clean.
+  process.stderr.write(msg + '\n');
 }
 
 /**
@@ -127,12 +134,21 @@ async function runAnalyze(
   }
 
   const config = loadConfig(repoPath);
+  const noAi = opts.noAi === true;
 
-  progress('Scanning…');
-  const result = await analyze({ repoPath, config, noAi: opts.noAi === true, maxFiles: opts.maxFiles });
-  progress(`${result.stores.length} stores detected`);
+  // One up-front banner when AI is available-but-off, rather than scattering
+  // "confidence may be lower" annotations across the report (PLAN.md 7.0).
+  if (!noAi && !process.env.GEMINI_API_KEY) notice(NO_AI_BANNER);
+
+  const result = await analyze({ repoPath, config, noAi, maxFiles: opts.maxFiles, onPhase: progress });
+
+  // A set-but-rejected key surfaces as its own message, not the generic
+  // API-error fallback (PLAN.md 7.0). classifyStoresWithGemini reports it once.
+  if (result.warnings.includes(AI_KEY_REJECTED)) notice(AI_KEY_REJECTED);
   if (opts.verbose) {
-    for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+    for (const warning of result.warnings) {
+      if (warning !== AI_KEY_REJECTED) process.stderr.write(`warning: ${warning}\n`);
+    }
   }
 
   // Render the artifact.
@@ -153,14 +169,10 @@ async function runAnalyze(
         docsAnchor: 'reports',
       });
     default: {
-      // Default terminal surface (full contract lands in Stage 7.0).
-      const lines: string[] = [];
-      if (result.stores.length === 0) {
-        lines.push('0 data stores detected — nothing to consolidate. This repo is already Postgres-only.');
-      } else {
-        lines.push(`${result.stores.length} data stores detected.`);
-      }
-      artifact = lines.join('\n') + '\n';
+      // Default terminal surface (PLAN.md 7.0). Color only when the artifact is
+      // going to an interactive stdout — never to a file, a pipe, or under NO_COLOR.
+      const color = !opts.out && !!process.stdout.isTTY && process.env.NO_COLOR === undefined;
+      artifact = renderTerminal(result, { color });
     }
   }
 

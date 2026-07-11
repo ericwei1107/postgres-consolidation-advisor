@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import type { DetectedStore, Evidence, StoreCategory, StoreRole } from '../types.js';
 import type { UsageEvidence } from '../usage/harvester.js';
+import { AI_KEY_REJECTED } from '../report/terminal.js';
 
 /** Ordered from highest-capability to lowest-cost Gemini text model. */
 export const DEFAULT_GEMINI_MODELS = [
@@ -75,6 +76,25 @@ export function isRateLimited(error: unknown): boolean {
     || candidate.status === 'RESOURCE_EXHAUSTED'
     || candidate.code === 'RESOURCE_EXHAUSTED'
     || /\b429\b|RESOURCE_EXHAUSTED/i.test(String(candidate.message ?? ''));
+}
+
+/**
+ * A set-but-rejected key (401/403) is a distinct failure from a transient API
+ * error — the terminal surface reports it separately (PLAN.md 7.0) so the user
+ * fixes the key instead of shrugging at a generic fallback.
+ */
+export function isAuthError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return /\b40[13]\b|PERMISSION_DENIED|UNAUTHENTICATED|API key/i.test(String(error));
+  const candidate = error as { status?: unknown; code?: unknown; message?: unknown };
+  return candidate.status === 401
+    || candidate.status === 403
+    || candidate.code === 401
+    || candidate.code === 403
+    || candidate.status === 'PERMISSION_DENIED'
+    || candidate.status === 'UNAUTHENTICATED'
+    || candidate.code === 'PERMISSION_DENIED'
+    || candidate.code === 'UNAUTHENTICATED'
+    || /\b40[13]\b|PERMISSION_DENIED|UNAUTHENTICATED|API key/i.test(String(candidate.message ?? ''));
 }
 
 /** Shared with Stage 6.2's snippet tailoring — same POSTGRES_ADVISOR_GEMINI_MODELS override. */
@@ -152,6 +172,12 @@ export async function classifyStoresWithGemini(
         storeId: store.id, role: role as StoreCategory, confidence, classifiedBy: 'gemini' as const, evidence,
       })));
     } catch (error) {
+      // A rejected key fails identically for every store — report it once with
+      // the distinct auth message and stop hammering the API (PLAN.md 7.0).
+      if (isAuthError(error)) {
+        options.addWarning?.(AI_KEY_REJECTED);
+        break;
+      }
       options.addWarning?.(`Gemini role classification failed for ${store.product} (${store.id}); using rule results: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

@@ -25,6 +25,8 @@ export interface AnalyzeOptions {
   config: AdvisorConfig;
   noAi: boolean;
   maxFiles?: number;
+  /** Phase notifications for the terminal progress surface (PLAN.md 7.0). */
+  onPhase?: (message: string) => void;
 }
 
 const DETECTORS: Detector[] = [composeDetector, dependenciesDetector, envDetector, ormDetector];
@@ -37,6 +39,9 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
     addWarning: (message) => warnings.push(message),
   };
 
+  const phase = opts.onPhase ?? (() => {});
+
+  phase('Scanning…');
   const detections: Detection[] = [];
   for (const detector of DETECTORS) {
     try {
@@ -54,7 +59,10 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   for (const store of stores) {
     if (suppress.has(store.id) || suppress.has(store.product)) store.suppressed = true;
   }
+  phase(`${stores.length} stores detected`);
+
   const usage = await harvestUsage(stores, ctx, { maxFiles: opts.maxFiles });
+  phase('Classifying roles…');
   const ruleRoles = classifyStores(stores, usage);
   const classified = await classifyStoresWithGemini(stores, ruleRoles, usage, {
     noAi: opts.noAi,
@@ -72,6 +80,7 @@ export async function analyze(opts: AnalyzeOptions): Promise<AnalysisResult> {
   // is a bounded re-scan (not a correctness issue) in exchange for keeping
   // the detector's own contract (Detection[], not raw OrmModel[]) unchanged.
   const models = await extractOrmModels(ctx);
+  phase('Scoring…');
   const verdicts = await computeVerdicts(stores, roles, usage, models, ctx);
 
   return {

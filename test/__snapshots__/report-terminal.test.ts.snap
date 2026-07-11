@@ -1,0 +1,26 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`terminal report (PLAN.md 7.0) > renders node-monolith for a TTY (same layout, ANSI-colored badges) 1`] = `
+"[32m[CONSOLIDATE][0m  elasticsearch (search)  → tsvector + pg_trgm
+[32m[CONSOLIDATE][0m  redis (cache)           → UNLOGGED table + pg_cron TTL sweep
+[32m[CONSOLIDATE][0m  redis (queue)           → Plain SQL, FOR UPDATE SKIP LOCKED
+
+You can fold 2 of 2 stores into Postgres.
+Full report: --out report.md
+"
+`;
+
+exports[`terminal report (PLAN.md 7.0) > renders node-monolith for a pipe (badges, impact, next-action, no color) 1`] = `
+"[CONSOLIDATE]  elasticsearch (search)  → tsvector + pg_trgm
+[CONSOLIDATE]  redis (cache)           → UNLOGGED table + pg_cron TTL sweep
+[CONSOLIDATE]  redis (queue)           → Plain SQL, FOR UPDATE SKIP LOCKED
+
+You can fold 2 of 2 stores into Postgres.
+Full report: --out report.md
+"
+`;
+
+exports[`terminal report (PLAN.md 7.0) > renders the empty repo as a win state 1`] = `
+"0 data stores detected — nothing to consolidate. This repo is already Postgres-only.
+"
+`;
